@@ -177,6 +177,17 @@ PKGEOF
         ;;
 esac
 
+# ---- Stage WeChat plugin into the dir OpenClaw actually reads ----
+# OpenClaw loads extensions ONLY from OPENCLAW_STATE_DIR/extensions; start.command
+# points STATE_DIR at $INSTALL_TARGET/data/.openclaw, so the plugin must live there.
+if [ -f "$APP_DIR/extensions/openclaw-weixin/openclaw.plugin.json" ]; then
+    echo -e "  ${CYAN}Installing WeChat plugin...${NC}"
+    mkdir -p "$INSTALL_TARGET/data/.openclaw/extensions"
+    if cp -R "$APP_DIR/extensions/openclaw-weixin" "$INSTALL_TARGET/data/.openclaw/extensions/openclaw-weixin" 2>/dev/null; then
+        echo -e "  ${GREEN}WeChat plugin installed ✓${NC}"
+    fi
+fi
+
 # ---- Default config ----
 CONFIG_PATH="$INSTALL_TARGET/data/.openclaw/openclaw.json"
 if [ ! -f "$CONFIG_PATH" ]; then

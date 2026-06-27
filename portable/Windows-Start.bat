@@ -122,13 +122,16 @@ if exist "%VERSION_FILE%" (
 )
 
 
-REM Auto-install WeChat plugin if available
+REM Auto-install WeChat plugin if available.
+REM IMPORTANT: OpenClaw loads extensions from OPENCLAW_STATE_DIR\extensions (a single
+REM override, no ~/.openclaw fallback). Since we point STATE_DIR at the USB, the plugin
+REM MUST be staged under %STATE_DIR%\extensions or the gateway never sees it.
 set "WECHAT_PLUGIN_SRC=%APP_DIR%\extensions\openclaw-weixin"
-set "WECHAT_PLUGIN_DST=%USERPROFILE%\.openclaw\extensions\openclaw-weixin"
+set "WECHAT_PLUGIN_DST=%STATE_DIR%\extensions\openclaw-weixin"
 if exist "%WECHAT_PLUGIN_SRC%\openclaw.plugin.json" (
     if not exist "%WECHAT_PLUGIN_DST%\openclaw.plugin.json" (
         echo   Installing WeChat plugin...
-        mkdir "%USERPROFILE%\.openclaw\extensions" 2>nul
+        mkdir "%STATE_DIR%\extensions" 2>nul
         xcopy /s /e /q /y "%WECHAT_PLUGIN_SRC%" "%WECHAT_PLUGIN_DST%\" >nul
         echo   WeChat plugin installed!
         echo.
@@ -206,6 +209,11 @@ echo   Config Center is open for model, key, recharge, and channel setup.
 echo   DO NOT close this window while using U-Claw!
 echo   ========================================
 echo.
+
+REM Clean stale gateway lock from a previous crash / USB yank so OpenClaw won't
+REM refuse to start with "gateway already running (pid XXXX)". Only locks whose
+REM owning process is gone (or corrupt) are removed; a live instance is left alone.
+"%NODE_BIN%" "%UCLAW_DIR%lib\clean-stale-lock.mjs" "%OPENCLAW_CONFIG_PATH%"
 
 cd /d "%CORE_DIR%"
 set "OPENCLAW_MJS=%CORE_DIR%\node_modules\openclaw\openclaw.mjs"

@@ -161,12 +161,13 @@ if exist "!QQ_DIR!" (
 )
 
 REM ---- Copy extensions (WeChat plugin etc.) ----
+REM OpenClaw loads extensions ONLY from OPENCLAW_STATE_DIR\extensions (single override,
+REM no ~/.openclaw fallback). The generated start.bat points STATE_DIR at
+REM %INSTALL_TARGET%\data\.openclaw, so the plugin MUST be staged there.
 if exist "%APP_DIR%\extensions\openclaw-weixin\openclaw.plugin.json" (
     echo   Installing WeChat plugin...
-    xcopy /s /e /q /y "%APP_DIR%\extensions\openclaw-weixin" "%INSTALL_TARGET%\extensions\openclaw-weixin\" >nul
-    REM Also install to ~/.openclaw/extensions/ for Gateway
-    mkdir "%USERPROFILE%\.openclaw\extensions" 2>nul
-    xcopy /s /e /q /y "%APP_DIR%\extensions\openclaw-weixin" "%USERPROFILE%\.openclaw\extensions\openclaw-weixin\" >nul
+    mkdir "%INSTALL_TARGET%\data\.openclaw\extensions" 2>nul
+    xcopy /s /e /q /y "%APP_DIR%\extensions\openclaw-weixin" "%INSTALL_TARGET%\data\.openclaw\extensions\openclaw-weixin\" >nul
     echo   WeChat plugin installed!
 )
 
