@@ -139,6 +139,14 @@ if [ -f "$WECHAT_PLUGIN_SRC/openclaw.plugin.json" ] && [ ! -f "$WECHAT_PLUGIN_DS
     cp -R "$WECHAT_PLUGIN_SRC" "$WECHAT_PLUGIN_DST" 2>/dev/null \
         && echo -e "  ${GREEN}WeChat plugin installed${NC}"
 fi
+# 确保插件能解析到 'zod'：npm 包不带 zod，且宿主 node_modules 不在插件的解析路径上，
+# 否则插件以 "Cannot find module 'zod'" 加载失败。从内置 OpenClaw core 复制 zod 过去。
+# 每次启动都跑，已经装好但缺 zod 的旧盘会自愈。
+if [ -f "$WECHAT_PLUGIN_DST/openclaw.plugin.json" ] && [ ! -d "$WECHAT_PLUGIN_DST/node_modules/zod" ] && [ -d "$CORE_DIR/node_modules/zod" ]; then
+    echo -e "  ${CYAN}Repairing WeChat plugin dependency (zod)...${NC}"
+    mkdir -p "$WECHAT_PLUGIN_DST/node_modules"
+    cp -R "$CORE_DIR/node_modules/zod" "$WECHAT_PLUGIN_DST/node_modules/zod" 2>/dev/null
+fi
 
 # ---- 7b. Async update check (non-blocking, 5s timeout, silent failure) ----
 # Writes data/.openclaw/update-available.json if a newer version is on OSS.
