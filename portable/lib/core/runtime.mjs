@@ -15,8 +15,7 @@
 // 零依赖，纯 Node。便携版 lib/ 的一贯约定。
 
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { appendActionLog } from './logger.mjs';
 
 // ── 密钥脱敏 ────────────────────────────────────────────────────────────────
 // 命中这些键名的值一律打码。宪法 #11：客户端当成可被反编译，输出更要当成会被贴到
@@ -131,18 +130,6 @@ export class ActionError extends Error {
   }
 }
 
-// ── 审计 ────────────────────────────────────────────────────────────────────
-
-function writeAudit(paths, line) {
-  try {
-    const file = join(paths.logsDir, 'actions.log');
-    mkdirSync(dirname(file), { recursive: true });
-    appendFileSync(file, line + '\n', 'utf8');
-  } catch {
-    // 审计尽力而为：写不进去也绝不能让动作失败（磁盘满 / U 盘只读）
-  }
-}
-
 // ── 执行 ────────────────────────────────────────────────────────────────────
 
 /**
@@ -159,19 +146,31 @@ export async function execute(action, input = {}, ctx = {}) {
   const startedAt = Date.now();
 
   const done = (ok, data, error) => {
+    const durationMs = Date.now() - startedAt;
     const result = {
       ok,
       execution_id: executionId,
       action_id: action.id,
       data: ok ? redact(data ?? {}) : null,
       error: ok ? null : { code: error.code, message: error.message, ...(error.details ? { details: redact(error.details) } : {}) },
-      meta: { duration_ms: Date.now() - startedAt, dry_run: !!ctx.dryRun },
+      meta: { duration_ms: durationMs, dry_run: !!ctx.dryRun },
     };
-    if (action.effects.audit_required && ctx.paths) {
-      writeAudit(
-        ctx.paths,
-        JSON.stringify({ ts: new Date().toISOString(), execution_id: executionId, action_id: action.id, ok, dry_run: !!ctx.dryRun, error: ok ? null : error.code }),
-      );
+
+    // 每个动作都记 —— 不只 audit_required 的那几个。
+    // 排障时最想知道的往往是"谁在什么时候查过什么"，只读动作同样有价值：
+    // pc-4800 那次拿不到任何执行轨迹，正是因为客户机上根本没有这层日志。
+    if (ctx.paths && ctx.log !== false) {
+      appendActionLog(ctx.paths, {
+        execution_id: executionId,
+        action_id: action.id,
+        surface: ctx.surface,
+        ok,
+        duration_ms: durationMs,
+        dry_run: !!ctx.dryRun,
+        input,
+        data: ok ? result.data : undefined,
+        error: ok ? undefined : error,
+      });
     }
     return result;
   };

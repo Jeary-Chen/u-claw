@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { platform, release, arch, totalmem, tmpdir } from 'node:os';
 import { defineAction, execute } from '../runtime.mjs';
 import { doctorDiagnose } from './doctor.mjs';
+import { readRecentLogs } from '../logger.mjs';
 
 const ISSUE_BASE = 'https://github.com/dongsheng123132/u-claw/issues/new';
 const MAX_LOG_LINES = 40;
@@ -73,7 +74,7 @@ function collectLogTail(logsDir) {
   }
 }
 
-function renderMarkdown({ appVersion, openclawVersion, diagnose, logs, userNote }) {
+function renderMarkdown({ appVersion, openclawVersion, diagnose, logs, actionLog, userNote }) {
   const L = [];
   L.push('## 环境', '');
   L.push('| 项 | 值 |', '|---|---|');
@@ -100,6 +101,16 @@ function renderMarkdown({ appVersion, openclawVersion, diagnose, logs, userNote 
     if (d.summary.error === 0 && d.summary.warn === 0) L.push('| ok | — | 未发现异常 |');
   } else {
     L.push('诊断动作本身失败：', '```', JSON.stringify(diagnose?.error ?? null), '```');
+  }
+  L.push('');
+
+  L.push('## 动作执行轨迹', '');
+  if (actionLog && actionLog.length) {
+    L.push('最近 ' + actionLog.length + ' 条（写入时已脱敏）：', '', '```jsonl');
+    for (const e of actionLog) L.push(JSON.stringify(e));
+    L.push('```');
+  } else {
+    L.push('暂无记录。');
   }
   L.push('');
 
@@ -142,7 +153,7 @@ export const bugCollect = defineAction({
     required: ['report_path', 'markdown', 'issue_url', 'healthy'],
   },
   effects: { class: 'write', risk: 'low', reversible: true, confirmation: 'never', audit_required: true },
-  execution: { headless: true, idempotent: false, cancellable: true, timeout_ms: 90000, progress_events: true },
+  execution: { headless: true, idempotent: false, cancellable: true, timeout_ms: 90000, progress_events: true, headless_evidence: 'tests/action-core.test.mjs' },
   async run(input, ctx) {
     const p = ctx.paths;
 
@@ -152,6 +163,8 @@ export const bugCollect = defineAction({
 
     ctx.progress?.(60, '收集日志');
     const logs = collectLogTail(p.logsDir);
+    // 我们自己的动作轨迹 —— 比 OpenClaw 的日志更直接说明"用户/运维做了什么"
+    const actionLog = readRecentLogs(p.logsDir, 30);
 
     const appVersion = existsSync(p.versionFile) ? readFileSync(p.versionFile, 'utf8').trim() : null;
     let openclawVersion = null;
@@ -160,7 +173,7 @@ export const bugCollect = defineAction({
     } catch { /* 未安装 */ }
 
     ctx.progress?.(80, '生成报告');
-    const markdown = renderMarkdown({ appVersion, openclawVersion, diagnose, logs, userNote: input.note });
+    const markdown = renderMarkdown({ appVersion, openclawVersion, diagnose, logs, actionLog, userNote: input.note });
 
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const reportPath = input.out || join(p.logsDir, `bug-report-${stamp}.md`);
@@ -170,7 +183,7 @@ export const bugCollect = defineAction({
       mkdirSync(p.logsDir, { recursive: true });
       writeFileSync(reportPath, markdown, 'utf8');
       // JSON 附件给机器读（运维 / AI 直接解析，不用 parse markdown）
-      writeFileSync(jsonPath, JSON.stringify({ appVersion, openclawVersion, platform: platform(), release: release(), arch: arch(), node: process.version, diagnose, logs }, null, 2), 'utf8');
+      writeFileSync(jsonPath, JSON.stringify({ appVersion, openclawVersion, platform: platform(), release: release(), arch: arch(), node: process.version, diagnose, logs, actionLog }, null, 2), 'utf8');
     }
 
     // 预填 issue 链接：用户点开是 GitHub 的新建 issue 页，内容已填好，

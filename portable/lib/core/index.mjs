@@ -9,9 +9,11 @@ import doctorActions from './actions/doctor.mjs';
 import bugActions from './actions/bugreport.mjs';
 import wechatActions from './actions/wechat.mjs';
 import gatewayActions from './actions/gateway.mjs';
+import logActions from './actions/log.mjs';
 
 export { execute, redact, ActionError, validateSchema, defineAction } from './runtime.mjs';
 export { resolvePaths } from './paths.mjs';
+export { appendActionLog, readRecentLogs, logFilePath } from './logger.mjs';
 
 /** 所有动作，按 id 升序。 */
 export const ACTIONS = [
@@ -20,6 +22,7 @@ export const ACTIONS = [
   ...bugActions,
   ...wechatActions,
   ...gatewayActions,
+  ...logActions,
 ].sort((a, b) => a.id.localeCompare(b.id));
 
 export const ACTIONS_BY_ID = new Map(ACTIONS.map((a) => [a.id, a]));

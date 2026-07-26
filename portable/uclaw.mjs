@@ -114,7 +114,7 @@ async function main() {
 
   // §6.1：以非交互 CLI 命令作为清单发现机制
   if (cmd === 'manifest') {
-    process.stdout.write(JSON.stringify({ spec_version: '0.2.0', actions: describeActions() }, null, 2) + '\n');
+    process.stdout.write(JSON.stringify({ spec_version: '0.3.0', actions: describeActions() }, null, 2) + '\n');
     return EXIT_OK;
   }
 
@@ -135,6 +135,7 @@ async function main() {
 
   const result = await execute(action, input, {
     paths: resolvePaths(),
+    surface: 'cli',
     confirmed: flags.yes === true || flags.yes === 'true',
     dryRun: flags.dry_run === true || flags.dry_run === 'true',
     noInput: flags.no_input === true,

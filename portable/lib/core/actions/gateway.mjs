@@ -76,7 +76,7 @@ export const lockClean = defineAction({
   // 活着的实例一律不碰。这个判定就是这里的确认条件，比弹窗更硬。
   // 保持非 always 是必要的：gateway.start 每次启动都要内部调用它，不能卡在确认上。
   effects: { class: 'destructive', risk: 'low', reversible: false, confirmation: 'conditional', audit_required: true },
-  execution: { headless: true, idempotent: true, cancellable: false, timeout_ms: 10000, progress_events: false },
+  execution: { headless: true, idempotent: true, cancellable: false, timeout_ms: 10000, progress_events: false, headless_evidence: 'tests/action-core.test.mjs' },
   async run(_input, ctx) {
     const dir = lockDir();
     const ourConfig = resolve(ctx.paths.configPath);
@@ -138,7 +138,7 @@ export const gatewayStart = defineAction({
     required: ['port', 'ready'],
   },
   effects: { class: 'external', risk: 'medium', reversible: true, confirmation: 'never', audit_required: true },
-  execution: { headless: true, idempotent: false, cancellable: true, timeout_ms: 120000, progress_events: true },
+  execution: { headless: true, idempotent: false, cancellable: true, timeout_ms: 120000, progress_events: true, headless_evidence: 'tests/action-core.test.mjs' },
   async run(input, ctx) {
     const p = ctx.paths;
     const entry = join(p.coreDir, 'node_modules', 'openclaw', 'openclaw.mjs');
@@ -209,7 +209,7 @@ export const gatewayStop = defineAction({
   },
   // 停服务是外部可见的破坏性动作 → 必须显式确认（§11.2）
   effects: { class: 'destructive', risk: 'high', reversible: true, confirmation: 'always', audit_required: true },
-  execution: { headless: true, idempotent: true, cancellable: false, timeout_ms: 30000, progress_events: false },
+  execution: { headless: true, idempotent: true, cancellable: false, timeout_ms: 30000, progress_events: false, headless_evidence: 'tests/action-core.test.mjs' },
   async run(input, ctx) {
     const ourConfig = resolve(ctx.paths.configPath);
     const dir = lockDir();

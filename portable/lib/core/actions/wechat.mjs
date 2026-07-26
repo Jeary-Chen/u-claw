@@ -53,7 +53,7 @@ export const wechatInstall = defineAction({
     required: ['installed', 'action'],
   },
   effects: { class: 'write', risk: 'low', reversible: true, confirmation: 'never', audit_required: true },
-  execution: { headless: true, idempotent: true, cancellable: true, timeout_ms: 120000, progress_events: true },
+  execution: { headless: true, idempotent: true, cancellable: true, timeout_ms: 120000, progress_events: true, headless_evidence: 'tests/action-core.test.mjs' },
   async run(input, ctx) {
     const { bundledExtensionsDir, extensionsDir, coreDir } = ctx.paths;
     // 慢 U 盘上 cpSync 整个插件目录可能要几十秒，必须能中断（§7.4：

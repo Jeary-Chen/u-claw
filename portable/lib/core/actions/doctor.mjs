@@ -95,7 +95,7 @@ export const doctorDiagnose = defineAction({
     required: ['healthy', 'platform', 'findings', 'summary'],
   },
   effects: { class: 'read', risk: 'low', reversible: true, confirmation: 'never', audit_required: false },
-  execution: { headless: true, idempotent: true, cancellable: true, timeout_ms: 60000, progress_events: true },
+  execution: { headless: true, idempotent: true, cancellable: true, timeout_ms: 60000, progress_events: true, headless_evidence: 'tests/action-core.test.mjs' },
   async run(input, ctx) {
     const p = ctx.paths;
     const scope = input.scope?.length ? new Set(input.scope) : null;

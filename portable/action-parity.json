@@ -1,5 +1,5 @@
 {
-  "spec_version": "0.2.0",
+  "spec_version": "0.3.0",
   "conformance_targets": [
     "AP-1"
   ],
@@ -15,12 +15,14 @@
       "id": "cli",
       "kind": "cli",
       "required_for_parity": true,
+      "reachability": "external",
       "description": "node portable/uclaw.mjs <action.id>。远程排障和自动化的入口。"
     },
     {
       "id": "gui",
       "kind": "gui",
       "required_for_parity": false,
+      "reachability": "local-ipc",
       "description": "配置中心（Config.html + config-server）与启动器。",
       "test_driver": "node-http"
     }
@@ -87,7 +89,8 @@
         "idempotent": false,
         "cancellable": true,
         "timeout_ms": 90000,
-        "progress_events": true
+        "progress_events": true,
+        "headless_evidence": "tests/action-core.test.mjs"
       },
       "bindings": [
         {
@@ -146,7 +149,8 @@
         "idempotent": true,
         "cancellable": false,
         "timeout_ms": 5000,
-        "progress_events": false
+        "progress_events": false,
+        "headless_evidence": "tests/action-core.test.mjs"
       },
       "bindings": [
         {
@@ -236,7 +240,8 @@
         "idempotent": false,
         "cancellable": false,
         "timeout_ms": 10000,
-        "progress_events": false
+        "progress_events": false,
+        "headless_evidence": "tests/action-core.test.mjs"
       },
       "bindings": [
         {
@@ -317,7 +322,8 @@
         "idempotent": true,
         "cancellable": true,
         "timeout_ms": 60000,
-        "progress_events": true
+        "progress_events": true,
+        "headless_evidence": "tests/action-core.test.mjs"
       },
       "bindings": [
         {
@@ -387,7 +393,8 @@
         "idempotent": false,
         "cancellable": true,
         "timeout_ms": 120000,
-        "progress_events": true
+        "progress_events": true,
+        "headless_evidence": "tests/action-core.test.mjs"
       },
       "bindings": [
         {
@@ -453,7 +460,8 @@
         "idempotent": true,
         "cancellable": false,
         "timeout_ms": 30000,
-        "progress_events": false
+        "progress_events": false,
+        "headless_evidence": "tests/action-core.test.mjs"
       },
       "bindings": [
         {
@@ -520,7 +528,8 @@
         "idempotent": true,
         "cancellable": false,
         "timeout_ms": 10000,
-        "progress_events": false
+        "progress_events": false,
+        "headless_evidence": "tests/action-core.test.mjs"
       },
       "bindings": [
         {
@@ -535,6 +544,83 @@
           "reason": "由 gateway.start 内部调用，属修复细节，不单独暴露给用户。",
           "owner": "dongsheng123132",
           "review_by": "2026-12-31"
+        }
+      ]
+    },
+    {
+      "id": "log.tail",
+      "title": "读取动作执行日志",
+      "description": "返回最近的动作执行记录（JSONL 解析后的对象数组），含动作 ID、来源 Surface、成功与否、耗时、错误码。密钥在写入时已脱敏。远程排障用。",
+      "tags": [
+        "diagnostics",
+        "support"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "number",
+            "description": "返回条数，默认 50，上限 500"
+          },
+          "action_id": {
+            "type": "string",
+            "description": "只看某个动作的记录"
+          },
+          "failed_only": {
+            "type": "boolean",
+            "description": "只看失败的"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "count": {
+            "type": "number"
+          },
+          "log_dir": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "entries",
+          "count",
+          "log_dir"
+        ]
+      },
+      "effects": {
+        "class": "read",
+        "risk": "low",
+        "reversible": true,
+        "confirmation": "never",
+        "audit_required": false
+      },
+      "execution": {
+        "headless": true,
+        "idempotent": true,
+        "cancellable": false,
+        "timeout_ms": 15000,
+        "progress_events": false,
+        "headless_evidence": "tests/action-log.test.mjs"
+      },
+      "bindings": [
+        {
+          "surface": "cli",
+          "target": "uclaw log.tail --json",
+          "test": "tests/action-core.test.mjs"
+        },
+        {
+          "surface": "gui",
+          "target": "config-server GET /api/logs",
+          "test": "tests/action-parity.test.mjs"
         }
       ]
     },
@@ -608,7 +694,8 @@
         "idempotent": true,
         "cancellable": true,
         "timeout_ms": 120000,
-        "progress_events": true
+        "progress_events": true,
+        "headless_evidence": "tests/action-core.test.mjs"
       },
       "bindings": [
         {

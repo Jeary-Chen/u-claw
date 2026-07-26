@@ -46,7 +46,7 @@ async function runAction(id, input, ctxExtra = {}) {
   const core = await loadCore();
   const action = core.getAction(id);
   if (!action) throw new Error(`unknown action: ${id}`);
-  return core.execute(action, input, { paths: core.resolvePaths(), ...ctxExtra });
+  return core.execute(action, input, { paths: core.resolvePaths(), surface: 'gui', ...ctxExtra });
 }
 
 /** 动作结果直出。成功 200，业务失败 400（区别于 5xx 的进程级异常）。 */
@@ -501,6 +501,19 @@ const server = http.createServer((req, res) => {
   // API: 健康诊断 —— 绑定 doctor.diagnose
   if (req.url === '/api/doctor' && req.method === 'GET') {
     runAction('doctor.diagnose', {}, {})
+      .then((r) => sendResult(res, r))
+      .catch((err) => sendError(res, err));
+    return;
+  }
+
+  // API: 读执行日志 —— 绑定 log.tail
+  if (req.url && req.url.startsWith('/api/logs') && req.method === 'GET') {
+    const q = new URL(req.url, 'http://localhost').searchParams;
+    const input = {};
+    if (q.get('limit')) input.limit = Number(q.get('limit'));
+    if (q.get('action_id')) input.action_id = q.get('action_id');
+    if (q.get('failed_only') === 'true') input.failed_only = true;
+    runAction('log.tail', input, {})
       .then((r) => sendResult(res, r))
       .catch((err) => sendError(res, err));
     return;

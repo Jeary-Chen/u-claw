@@ -100,7 +100,7 @@ export const configGet = defineAction({
     required: ['exists', 'path', 'config'],
   },
   effects: { class: 'read', risk: 'low', reversible: true, confirmation: 'never', audit_required: false },
-  execution: { headless: true, idempotent: true, cancellable: false, timeout_ms: 5000, progress_events: false },
+  execution: { headless: true, idempotent: true, cancellable: false, timeout_ms: 5000, progress_events: false, headless_evidence: 'tests/action-core.test.mjs' },
   async run(_input, ctx) {
     const { configPath } = ctx.paths;
     // 没有 reveal_secrets 这种开关：出口一律脱敏。GUI 想改 Key 就让用户重填一次，
@@ -153,7 +153,7 @@ export const configSet = defineAction({
   // runtime 会要求 confirmed，由 CLI --yes / GUI 确认框提供。见下方 run() 里
   // 对 merge 的放行——真正需要拦的是 replace。
   effects: { class: 'write', risk: 'medium', reversible: true, confirmation: 'conditional', audit_required: true },
-  execution: { headless: true, idempotent: false, cancellable: false, timeout_ms: 10000, progress_events: false },
+  execution: { headless: true, idempotent: false, cancellable: false, timeout_ms: 10000, progress_events: false, headless_evidence: 'tests/action-core.test.mjs' },
   async run(input, ctx) {
     const { configPath, backupsDir } = ctx.paths;
     const mode = input.mode || 'merge';

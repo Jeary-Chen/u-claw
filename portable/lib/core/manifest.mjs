@@ -22,6 +22,7 @@ const BINDINGS = {
   'lock.clean':            { cli: 'uclaw lock.clean --json',                       gui: null },
   'gateway.start':         { cli: 'uclaw gateway.start --json',                    gui: null },
   'gateway.stop':          { cli: 'uclaw gateway.stop --yes --json',               gui: null },
+  'log.tail':              { cli: 'uclaw log.tail --json',                        gui: 'config-server GET /api/logs' },
 };
 
 // GUI 尚未接入的动作，按 §8.3 明确登记豁免——不许悄悄少写一条绑定。
@@ -37,7 +38,7 @@ export function buildManifest() {
   const version = existsSync(paths.versionFile) ? readFileSync(paths.versionFile, 'utf8').trim() : '0.0.0';
 
   return {
-    spec_version: '0.2.0',
+    spec_version: '0.3.0',
     conformance_targets: ['AP-1'],
     application: {
       id: 'org.u-claw.portable',
@@ -51,6 +52,9 @@ export function buildManifest() {
         id: 'cli',
         kind: 'cli',
         required_for_parity: true,
+        // external：这条 CLI 任何外部进程都能直接调（远程运维 agent 就是这么用的），
+        // 不是只有 U-Claw 自己前端能走的私有调用约定。0.3.0 §12 要求明示。
+        reachability: 'external',
         description: 'node portable/uclaw.mjs <action.id>。远程排障和自动化的入口。',
       },
       {
@@ -59,6 +63,7 @@ export function buildManifest() {
         // AP-1 阶段只要求 CLI 全覆盖；GUI 绑定正在迁移中，故不计入严格分母。
         // 迁完后把这里改成 true 即可升 AP-2。
         required_for_parity: false,
+        reachability: 'local-ipc',
         description: '配置中心（Config.html + config-server）与启动器。',
         test_driver: 'node-http',
       },
