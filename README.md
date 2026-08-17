@@ -10,6 +10,7 @@
   <a href="https://github.com/dongsheng123132/u-claw/releases">下载便携版</a> ·
   <a href="https://u-claw.org/tutorial.html">完整教程</a> ·
   <a href="#快速开始制作便携版-u-盘">从源码制作</a> ·
+  <a href="#企业服务">企业服务</a> ·
   <a href="#english">English</a>
 </p>
 
@@ -280,6 +281,29 @@ npm install && npm run build
 ```
 正式 Release 包已修复此问题，建议从 [Releases](https://github.com/dongsheng123132/u-claw/releases) 下载最新版。
 
+<a id="企业服务"></a>
+
+### 💼 企业 AI 落地服务（付费）
+
+U-Claw 免费开源，自己装了用完全够，不用买任何东西。
+
+但如果你要把 AI **落进公司的业务流程**——客服、文档、质检、报价、内部知识库——
+那是另一件事。我是 [贺去病](https://hequbing.com)，独立 AI 产品开发者，做过 50+ 个交付项目，
+方案到上线一个人能兜住。这部分按项目收费：
+
+| 服务 | 你拿到什么 | 价格 |
+| :-- | :-- | :-- |
+| **AI 需求诊断** | 30 分钟通话：哪些环节值得上 AI、哪些是坑、大概多少钱 | **免费** |
+| **AI 方案设计** | 完整方案：技术选型 + 成本估算 + 实施路径 | ¥3,000 起 |
+| **快速 POC** | 2 周内交付能演示的原型，先验证可行再投钱 | ¥8,000 起 |
+| **落地陪跑** | 从方案到上线全程跟，含团队培训 | ¥20,000 起 |
+| **U-Claw 企业定制** | 私有化部署、批量装机、内网版、白标 | 面议 |
+
+**从免费诊断开始，不合适我会直接说不合适** —— 微信 hecare888 ·
+[hefangsheng@gmail.com](mailto:hefangsheng@gmail.com) · [hequbing.com](https://hequbing.com)
+
+---
+
 ### 联系 & 合作
 
 <img src="assets/wechat-qr.jpg" width="220" alt="微信二维码 — 贺去病 ai 工作室" align="right" />
@@ -307,6 +331,12 @@ npm install && npm run build
 <a id="english"></a>
 
 ## English
+
+<p align="center">
+  <a href="https://github.com/dongsheng123132/u-claw/releases">Download</a> ·
+  <a href="https://u-claw.org/tutorial.html">Full tutorial</a> ·
+  <a href="#enterprise-services">Enterprise services</a>
+</p>
 
 ### What is this
 
@@ -547,6 +577,30 @@ cd portable/app/core/node_modules/@sliverp/qqbot
 npm install && npm run build
 ```
 This is fixed in the latest [Release](https://github.com/dongsheng123132/u-claw/releases) — downloading the pre-built release is recommended.
+
+<a id="enterprise-services"></a>
+
+### 💼 Enterprise AI Consulting (paid)
+
+U-Claw is free and MIT-licensed. Installing it for yourself costs nothing and needs nothing from me.
+
+Putting AI **into your company's actual workflow** — support, documents, QA, quoting, internal
+knowledge bases — is a different job. I'm [He Qubing](https://hequbing.com), an independent AI product
+developer with 50+ delivered projects; I can carry a project from scoping to production on my own.
+That part is paid:
+
+| Service | What you get | Price |
+| :-- | :-- | :-- |
+| **AI scoping call** | 30 min: what's worth automating, what will burn you, rough budget | **Free** |
+| **Solution design** | Full plan: stack selection, cost model, rollout path | from ¥3,000 (~$420) |
+| **Rapid POC** | A working demo in 2 weeks — validate before you spend | from ¥8,000 (~$1,100) |
+| **Hands-on delivery** | Scoping through production, including team training | from ¥20,000 (~$2,800) |
+| **U-Claw for teams** | Self-hosted, bulk provisioning, air-gapped, white-label | Let's talk |
+
+**Start with the free call — if it's a bad fit I'll say so** —
+[hefangsheng@gmail.com](mailto:hefangsheng@gmail.com) · [hequbing.com](https://hequbing.com)
+
+---
 
 ### Contact & Partnership
 
