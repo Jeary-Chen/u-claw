@@ -210,10 +210,28 @@ export function applyKey(configPath, apiKey, opts = {}) {
 
   const incoming = { ...existing, models };
 
-  if (opts.setPrimary !== false) {
+  // 主模型归属：默认「空位才占」——不抢用户已经配好的 provider。
+  //
+  // 领取额度是为了让没配过模型的人立刻能用，不是为了把付费用户设好的 MiniMax/DeepSeek
+  // 换掉。商业版 ClawX 早有定论：「付费用户的默认模型必须活过重启」，这里遵循同一条。
+  //
+  //   setPrimary === false → 永不设置
+  //   setPrimary === true  → 强制设置（留给"设为主模型"这类用户显式动作）
+  //   未传（默认）          → 只在没有可用主模型、或主模型本来就指向本 provider 时才设置
+  const currentPrimary =
+    isPlainObject(existing.agents) &&
+    isPlainObject(existing.agents.defaults) &&
+    isPlainObject(existing.agents.defaults.model)
+      ? String(existing.agents.defaults.model.primary || '').trim()
+      : '';
+  const primaryIsVacant = !currentPrimary || currentPrimary.startsWith(`${CLOUD_PROVIDER_ID}/`);
+  const shouldSetPrimary =
+    opts.setPrimary === true || (opts.setPrimary !== false && primaryIsVacant);
+
+  if (shouldSetPrimary) {
     const agents = isPlainObject(existing.agents) ? { ...existing.agents } : {};
     const defaults = isPlainObject(agents.defaults) ? { ...agents.defaults } : {};
-    defaults.model = { primary: `${CLOUD_PROVIDER_ID}/${DEFAULT_MODEL_ID}` };
+    defaults.model = { ...(isPlainObject(defaults.model) ? defaults.model : {}), primary: `${CLOUD_PROVIDER_ID}/${DEFAULT_MODEL_ID}` };
     agents.defaults = defaults;
     incoming.agents = agents;
   }

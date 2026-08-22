@@ -387,6 +387,95 @@ test('applyKey 是领取 / rotate / adopt 三条路径共用的同一个写盘�
   });
 });
 
+// ── 主模型归属：「空位才占」，不抢用户已配好的 provider ────────────────────────
+//
+// 领取额度是给没配过模型的人用的，不该把付费用户设好的 MiniMax/DeepSeek 换掉。
+// 商业版 ClawX 的既定策略是「付费用户的默认模型必须活过重启」，这里遵循同一条。
+
+test('applyKey：用户已配了别家主模型时，领取额度不抢主模型', async () => {
+  await withTempDir(async (dir) => {
+    const configPath = join(dir, 'openclaw.json');
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        models: { mode: 'merge', providers: { minimax: { baseUrl: 'https://api.minimaxi.com/v1' } } },
+        agents: { defaults: { model: { primary: 'minimax/MiniMax-M3' } } },
+      })
+    );
+
+    const merged = applyKey(configPath, 'sk-should-not-steal-primary');
+
+    assert.equal(
+      merged.agents.defaults.model.primary,
+      'minimax/MiniMax-M3',
+      '用户自己配的主模型必须原样存活'
+    );
+    assert.equal(
+      merged.models.providers[CLOUD_PROVIDER_ID].apiKey,
+      'sk-should-not-steal-primary',
+      '钱包 provider 仍然要写进去（只是不当主模型）'
+    );
+  });
+});
+
+test('applyKey：没有主模型时才占位（新用户一键领取即可用）', async () => {
+  await withTempDir(async (dir) => {
+    const configPath = join(dir, 'openclaw.json');
+    const merged = applyKey(configPath, 'sk-fresh-user-key');
+    assert.equal(merged.agents.defaults.model.primary, `${CLOUD_PROVIDER_ID}/deepseek-v4-flash`);
+  });
+});
+
+test('applyKey：主模型本来就指向钱包 provider 时，换 key 后仍指向它', async () => {
+  await withTempDir(async (dir) => {
+    const configPath = join(dir, 'openclaw.json');
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        agents: { defaults: { model: { primary: `${CLOUD_PROVIDER_ID}/deepseek-v4-flash` } } },
+      })
+    );
+    const merged = applyKey(configPath, 'sk-rotated-key');
+    assert.equal(merged.agents.defaults.model.primary, `${CLOUD_PROVIDER_ID}/deepseek-v4-flash`);
+    assert.equal(merged.models.providers[CLOUD_PROVIDER_ID].apiKey, 'sk-rotated-key');
+  });
+});
+
+test('applyKey：setPrimary:true 可强制夺取主模型（留给用户显式的「设为主模型」动作）', async () => {
+  await withTempDir(async (dir) => {
+    const configPath = join(dir, 'openclaw.json');
+    writeFileSync(
+      configPath,
+      JSON.stringify({ agents: { defaults: { model: { primary: 'minimax/MiniMax-M3' } } } })
+    );
+    const merged = applyKey(configPath, 'sk-forced', { setPrimary: true });
+    assert.equal(merged.agents.defaults.model.primary, `${CLOUD_PROVIDER_ID}/deepseek-v4-flash`);
+  });
+});
+
+test('applyKey：setPrimary:false 永不设置主模型', async () => {
+  await withTempDir(async (dir) => {
+    const configPath = join(dir, 'openclaw.json');
+    const merged = applyKey(configPath, 'sk-no-primary', { setPrimary: false });
+    assert.equal(merged.agents?.defaults?.model?.primary, undefined);
+  });
+});
+
+test('applyKey：不抢主模型时，agents.defaults 下的其它字段不被破坏', async () => {
+  await withTempDir(async (dir) => {
+    const configPath = join(dir, 'openclaw.json');
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        agents: { defaults: { model: { primary: 'minimax/MiniMax-M3', fallback: 'minimax/abc' }, somethingElse: 42 } },
+      })
+    );
+    const merged = applyKey(configPath, 'sk-keep-siblings');
+    assert.equal(merged.agents.defaults.somethingElse, 42);
+    assert.equal(merged.agents.defaults.model.fallback, 'minimax/abc');
+  });
+});
+
 // ── getBalance ───────────────────────────────────────────────────────────────
 
 test('getBalance: 没有钱包时直接返回失败，不发请求', async () => {
