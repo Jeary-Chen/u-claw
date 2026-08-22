@@ -146,6 +146,21 @@ test('local-model setup launcher calls setup-local-model.mjs', () => {
   assert.match(bat, /lib\\setup-local-model\.mjs/);
 });
 
+test('portable menus expose a CLI terminal entry point (issue #53)', () => {
+  // Windows-Menu.bat and Mac-Menu.command are the only menus most users ever
+  // see (Windows-Start.bat / Mac-Start.command only open the web UI); before
+  // this the standalone OpenClaw-CLI.bat / Mac-OpenClaw-CLI.command existed
+  // but had no entry in either menu, so users assumed U-Claw was "web only"
+  // (issue #53). Both menus must offer a way to launch them.
+  const winMenu = readRepoFile('portable', 'Windows-Menu.bat');
+  assert.match(winMenu, /goto :clitool/, 'Windows-Menu.bat menu choice should route to a CLI entry');
+  assert.match(winMenu, /:clitool[\s\S]*OpenClaw-CLI\.bat/, 'Windows-Menu.bat should launch OpenClaw-CLI.bat');
+
+  const macMenu = readRepoFile('portable', 'Mac-Menu.command');
+  assert.match(macMenu, /do_cli/, 'Mac-Menu.command should have a CLI menu action');
+  assert.match(macMenu, /Mac-OpenClaw-CLI\.command/, 'Mac-Menu.command should launch Mac-OpenClaw-CLI.command');
+});
+
 test('OpenClaw doctor launcher is read-only (no destructive repair flags)', () => {
   const bat = readRepoFile('portable', 'OpenClaw-Doctor.bat');
   assert.match(bat, /OPENCLAW_MJS%" doctor --non-interactive/);
