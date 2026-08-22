@@ -126,6 +126,11 @@ REM Auto-install WeChat plugin if available.
 REM IMPORTANT: OpenClaw loads extensions from OPENCLAW_STATE_DIR\extensions (a single
 REM override, no ~/.openclaw fallback). Since we point STATE_DIR at the USB, the plugin
 REM MUST be staged under %STATE_DIR%\extensions or the gateway never sees it.
+REM We also copy 'zod' from the bundled OpenClaw core into the staged plugin: the npm
+REM tarball ships WITHOUT zod in node_modules and the host node_modules is off the
+REM plugin's resolution path, so otherwise the plugin dies with "Cannot find module
+REM 'zod'" and WeChat never loads. The zod copy runs every launch so drives that were
+REM already staged without it self-heal on next start.
 set "WECHAT_PLUGIN_SRC=%APP_DIR%\extensions\openclaw-weixin"
 set "WECHAT_PLUGIN_DST=%STATE_DIR%\extensions\openclaw-weixin"
 if exist "%WECHAT_PLUGIN_SRC%\openclaw.plugin.json" (
@@ -135,6 +140,11 @@ if exist "%WECHAT_PLUGIN_SRC%\openclaw.plugin.json" (
         xcopy /s /e /q /y "%WECHAT_PLUGIN_SRC%" "%WECHAT_PLUGIN_DST%\" >nul
         echo   WeChat plugin installed!
         echo.
+    )
+    if not exist "%WECHAT_PLUGIN_DST%\node_modules\zod" if exist "%CORE_DIR%\node_modules\zod" (
+        echo   Repairing WeChat plugin dependency zod...
+        mkdir "%WECHAT_PLUGIN_DST%\node_modules" 2>nul
+        xcopy /s /e /q /y "%CORE_DIR%\node_modules\zod" "%WECHAT_PLUGIN_DST%\node_modules\zod\" >nul
     )
 )
 
