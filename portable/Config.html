@@ -580,6 +580,25 @@ async function saveConfig() {
 
     const openclawConfig = buildOpenClawConfig(selectedProvider, base, model, apiKey);
 
+    // 双保险（issue #58）：服务端 /api/config 已经会合并写入、保留 plugins 等 UI 不认识的字段，
+    // 这里前端也顺手把现有配置里的"非模型字段"带上再提交——万一将来换了别的后端实现，或者
+    // 有调试脚本直接糊了一个整体覆盖的服务端，也不会一撞就把用户的微信插件配置冲没。
+    // MANAGED_CONFIG_KEYS 必须和 portable/lib/merge-config.mjs 里的 MANAGED_TOP_LEVEL_KEYS 保持一致。
+    const MANAGED_CONFIG_KEYS = ['gateway', 'commands', 'meta', 'models', 'agents', 'env'];
+    try {
+        const existingRes = await fetch('/api/config');
+        if (existingRes.ok) {
+            const existing = await existingRes.json();
+            if (existing && typeof existing === 'object') {
+                for (const key of Object.keys(existing)) {
+                    if (!MANAGED_CONFIG_KEYS.includes(key) && !(key in openclawConfig)) {
+                        openclawConfig[key] = existing[key];
+                    }
+                }
+            }
+        }
+    } catch (e) { /* 拿不到现有配置就跳过双保险，服务端合并仍会兜底 */ }
+
     try {
         const res = await fetch('/api/config', {
             method: 'POST',

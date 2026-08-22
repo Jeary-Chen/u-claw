@@ -289,15 +289,15 @@ async function handleWeChatStatus(sessionKey) {
     });
 
     // 3. Update openclaw.json to enable the plugin
+    // 用同一套 lib/merge-config.mjs 原子写（读现有文件 + rename 落盘），跟 /api/config 保持
+    // 一致的"不半截写坏、不静默丢字段"保证。
     try {
-      const configRaw = fs.existsSync(CONFIG_PATH) ? fs.readFileSync(CONFIG_PATH, 'utf-8') : '{}';
-      const config = JSON.parse(configRaw);
+      const { readConfigSafe, writeConfigAtomic } = await import('../lib/merge-config.mjs');
+      const config = readConfigSafe(CONFIG_PATH);
       if (!config.plugins) config.plugins = {};
       if (!config.plugins.entries) config.plugins.entries = {};
       config.plugins.entries['openclaw-weixin'] = { enabled: true };
-      const dir = path.dirname(CONFIG_PATH);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+      writeConfigAtomic(CONFIG_PATH, config);
     } catch (e) {
       console.error('Failed to update config:', e.message);
     }
@@ -498,23 +498,24 @@ const server = http.createServer((req, res) => {
   }
 
   // API: Save config
+  // 合并写入而非整体覆盖（issue #58）：磁盘上可能有 UI 不认识的字段（最典型是微信登录写入的
+  // config.plugins.entries），整体覆盖会把它们静默冲掉。合并 + 原子写逻辑见 lib/merge-config.mjs。
   if (req.url === '/api/config' && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
-      try {
-        const config = JSON.parse(body);
-        // 清除旧版废弃键，防止 OpenClaw 报 "agent.* was moved" 错误
-        delete config.agent;
-        const dir = path.dirname(CONFIG_PATH);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true }));
-      } catch (err) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: err.message }));
-      }
+      (async () => {
+        try {
+          const incoming = JSON.parse(body);
+          const { saveConfigMerged } = await import('../lib/merge-config.mjs');
+          saveConfigMerged(CONFIG_PATH, incoming);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true }));
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: err.message }));
+        }
+      })();
     });
     return;
   }
