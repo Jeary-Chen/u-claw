@@ -267,6 +267,9 @@ export async function getStatus(deps = {}) {
     return {
       ok: true,
       hasWallet: !!state.apiKey,
+      // 本地配置页需要完整 key 才能实现「复制密钥」——openclaw.json 里本来就明文存着它，
+      // 这里不隐藏不引入新的暴露面；maskedKey 只是给默认展示用的脱敏文案。
+      apiKey: state.apiKey || '',
       maskedKey: maskKey(state.apiKey),
       walletId: state.walletId || '',
       hasPending: !!state.pendingKey,
@@ -274,7 +277,7 @@ export async function getStatus(deps = {}) {
     };
   } catch (error) {
     // C1/C6：存储打不开就当"还没绑定"，代价是界面必须留 adopt 入口。
-    return { ok: false, error: describeError(error), hasWallet: false, maskedKey: '', hasPending: false, pendingKind: '' };
+    return { ok: false, error: describeError(error), hasWallet: false, apiKey: '', maskedKey: '', hasPending: false, pendingKind: '' };
   }
 }
 

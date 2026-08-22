@@ -530,8 +530,11 @@ const server = http.createServer((req, res) => {
   if (req.url === '/api/wallet/status' && req.method === 'GET') {
     (async () => {
       try {
-        const { getStatus } = await import('../lib/wallet-client.mjs');
+        const { getStatus, payBaseUrl } = await import('../lib/wallet-client.mjs');
         const result = await getStatus();
+        if (result.hasWallet && result.apiKey) {
+          result.rechargeUrl = payBaseUrl() + '/recharge?key=' + encodeURIComponent(result.apiKey);
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
       } catch (err) {
