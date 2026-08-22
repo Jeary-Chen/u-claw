@@ -750,7 +750,8 @@ async function launchOpenClaw() {
     const channels = {};
 
     const tgToken = document.getElementById('ch-telegram-token')?.value.trim();
-    if (tgToken) channels.telegram = { enabled: true, token: tgToken, dmPolicy: 'pairing' };
+    // OpenClaw 顶层 telegram 渠道只认 botToken（写 token 会被静默忽略 → 接不上）。
+    if (tgToken) channels.telegram = { enabled: true, botToken: tgToken, dmPolicy: 'pairing' };
 
     const qqId = document.getElementById('ch-qqbot-appid')?.value.trim();
     const qqSecret = document.getElementById('ch-qqbot-secret')?.value.trim();
