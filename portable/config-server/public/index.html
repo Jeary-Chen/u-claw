@@ -194,10 +194,10 @@ input:focus { border-color: #ff6b35; }
                 <p>deepseek-v4-flash / deepseek-v4-pro，超低价格</p>
                 <a class="buy-link" href="https://platform.deepseek.com/" target="_blank">→ 获取 API Key</a>
             </div>
-            <div class="model-card" data-provider="minimax" data-base="https://api.minimax.chat/v1" data-model="MiniMax-M2.7">
+            <div class="model-card" data-provider="minimax" data-base="https://api.minimaxi.com/v1" data-model="MiniMax-M3">
                 <span class="check">✓</span>
                 <h4>MiniMax <span class="tag cn">国内</span></h4>
-                <p>MiniMax-M2.7，速度快，性价比高</p>
+                <p>MiniMax-M3，百万级上下文，支持图片/视频输入</p>
                 <a class="buy-link" href="https://platform.minimaxi.com/" target="_blank">→ 获取 API Key</a>
             </div>
             <div class="model-card" data-provider="kimi" data-base="https://api.moonshot.cn/v1" data-model="kimi-k2.6">
@@ -477,7 +477,8 @@ function setupStep2() {
     var name = PROVIDER_NAMES[selectedProvider] || selectedProvider;
     document.getElementById('step2desc').textContent = '请填写 ' + name + ' 的 API Key';
 
-    var card = document.querySelector('#step1 .model-card[data-provider="' + selectedProvider + '"]');
+    // 取当前点亮的卡片（选中态），同一 provider 多张卡时也不会选错
+    var card = document.querySelector('#step1 .model-card.selected');
     var buyLink = card ? card.querySelector('.buy-link') : null;
     var linksDiv = document.getElementById('providerLinks');
     linksDiv.innerHTML = '';
@@ -496,6 +497,32 @@ function togglePw(id) {
     var btn = inp.parentElement.querySelector('.toggle-pw');
     if (inp.type === 'password') { inp.type = 'text'; btn.textContent = '隐藏'; }
     else { inp.type = 'password'; btn.textContent = '显示'; }
+}
+
+// --- 按模型能力生成正确的模型定义（reasoning / 多模态 / 上下文窗口）---
+// 旧代码不管什么模型一律写 reasoning:false, contextWindow:128000，明显不对。
+// 定价字段核不准就不填，宁可留 0 也不能瞎填（计费显示错比没有更糟）。
+function buildModelDefinition(provider, model) {
+    var definition = {
+        id: model,
+        name: model,
+        reasoning: false,
+        input: ['text'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128000,
+        maxTokens: 8192
+    };
+
+    if (provider !== 'minimax') return definition;
+
+    var miniMaxProfiles = {
+        'MiniMax-M3': {
+            reasoning: true,
+            input: ['text', 'image', 'video'],
+            contextWindow: 1000000
+        }
+    };
+    return Object.assign(definition, miniMaxProfiles[model] || {});
 }
 
 // --- Build OpenClaw config ---
@@ -520,15 +547,7 @@ function buildConfig(provider, base, model, apiKey) {
         baseUrl: base,
         apiKey: apiKey,
         api: 'openai-completions',
-        models: [{
-            id: model,
-            name: model,
-            reasoning: false,
-            input: ['text'],
-            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-            contextWindow: 128000,
-            maxTokens: 8192
-        }]
+        models: [buildModelDefinition(provider, model)]
     };
     return Object.assign({}, baseConfig, {
         models: { mode: 'merge', providers: providers },
@@ -788,7 +807,13 @@ async function loadConfig() {
             var providerName = Object.keys(cfg.models.providers)[0];
             if (providerName) {
                 var p = cfg.models.providers[providerName];
-                var card = document.querySelector('#step1 .model-card[data-provider="' + providerName + '"]');
+                // 同一 provider 可能有多张卡，按 base+model 三元组精确匹配，避免回填选错卡
+                var modelId = p.models && p.models[0] ? p.models[0].id : '';
+                var card = Array.from(document.querySelectorAll('#step1 .model-card')).find(function(candidate) {
+                    return candidate.dataset.provider === providerName &&
+                        candidate.dataset.base === (p.baseUrl || '') &&
+                        candidate.dataset.model === modelId;
+                }) || document.querySelector('#step1 .model-card[data-provider="' + providerName + '"]');
                 if (card) card.click();
                 if (p.apiKey) document.getElementById('apiKey').value = p.apiKey;
             }
