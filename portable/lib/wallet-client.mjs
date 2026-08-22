@@ -48,8 +48,17 @@ const PENDING_ROTATE = 'rotate';
 export const CLOUD_PROVIDER_ID = 'uclaw-cloud';
 export const DEFAULT_MODEL_ID = 'deepseek-v4-flash';
 
-const DEFAULT_API_BASE_URL = 'https://api.u-claw.org';
-const DEFAULT_PAY_BASE_URL = 'https://cloud.u-claw.org';
+// 端点默认值。实测于 2026-08-23（都可用环境变量覆盖）：
+//   api.u-claw.org.cn    0.23s   ← 国内可达，默认走它
+//   api.u-claw.org       1.34s   国际站，同样活着
+//   cloud.u-claw.org.cn  不存在（HTTP 000），别往这里指
+//   cloud.u-claw.org     能通但慢 1.6s，且 /recharge 会 302；部分国内网络会被 SNI reset
+// 充值页直接用同域的 api.u-claw.org.cn/recharge（实测 200，无跳转）。
+const DEFAULT_API_BASE_URL = 'https://api.u-claw.org.cn';
+const DEFAULT_PAY_BASE_URL = 'https://api.u-claw.org.cn';
+
+// 虾盘云内部额度单位：500,000 quota = $1（见 虾盘云 docs/api.md）
+const QUOTA_PER_USD = 500000;
 
 const EMPTY_STATE = Object.freeze({
   apiKey: '',
@@ -377,6 +386,20 @@ async function doClaim(deps) {
     return { ok: false, error: describeError(error) };
   }
 
+  // 领取失败要给普通用户看得懂的话。「HTTP 429」对客户是天书，而 429 恰恰是最常撞上的一种：
+  // 服务端对匿名 bind 有限流（规范要求，防薅羊毛），同一网络下多人同时插 U 盘就会撞到。
+  // 实测 2026-08-23：限流返回 429 {"error":"rate-limited"}。
+  function describeClaimFailure(res) {
+    if (res.status === 429) {
+      return '领取的人太多，服务器让稍等一下。过几分钟再点一次就行（也可以先在下方"高级"里填自己的 API Key）。';
+    }
+    if (res.status === 0 || res.status >= 500) {
+      return '连不上虾盘云服务器。检查一下网络，或稍后再试。';
+    }
+    const detail = res.body && res.body.error ? `（${res.body.error}）` : '';
+    return `领取失败：HTTP ${res.status}${detail}`;
+  }
+
   try {
     if (state.pendingKey) {
       state = await settlePendingState(state, store, fetchImpl, verify, deps);
@@ -387,7 +410,7 @@ async function doClaim(deps) {
 
     const res = await devicePost('/device/bind', {}, fetchImpl, deps.apiBase);
     if (res.status !== 200 || !res.body.apiKey) {
-      return { ok: false, error: `领取失败：HTTP ${res.status} ${res.body?.error || ''}`.trim() };
+      return { ok: false, error: describeClaimFailure(res) };
     }
 
     const next = { ...EMPTY_STATE, apiKey: res.body.apiKey, walletId: res.body.walletId || '' };
@@ -418,17 +441,50 @@ export async function getBalance(deps = {}) {
 
   try {
     const base = apiBaseUrl(deps.apiBase);
-    const res = await fetchImpl(joinUrl(base, '/api/usage/token/'), {
-      headers: { Authorization: `Bearer ${state.apiKey}` },
+    const headers = {
+      Authorization: `Bearer ${state.apiKey}`,
       signal: AbortSignal.timeout(NETWORK_TIMEOUT_MS),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) return { ok: false, error: `查询余额失败：HTTP ${res.status}` };
+    };
+    const today = deps.today || new Date().toISOString().slice(0, 10);
+
+    // 两个 OpenAI 兼容的 billing 接口，实测于 api.u-claw.org.cn（2026-08-23）：
+    //   /v1/dashboard/billing/subscription → { hard_limit_usd }
+    //   /v1/dashboard/billing/usage        → { total_usage }   单位是 USD×100
+    //   剩余 USD = hard_limit_usd - total_usage / 100
+    // 换算：500,000 quota = $1（见虾盘云 docs/api.md）
+    const [subRes, usageRes] = await Promise.all([
+      fetchImpl(joinUrl(base, '/v1/dashboard/billing/subscription'), {
+        headers: { Authorization: headers.Authorization },
+        signal: headers.signal,
+      }),
+      fetchImpl(
+        joinUrl(base, `/v1/dashboard/billing/usage?start_date=2020-01-01&end_date=${today}`),
+        { headers: { Authorization: headers.Authorization }, signal: headers.signal }
+      ),
+    ]);
+
+    if (!subRes.ok) return { ok: false, error: `查询余额失败：HTTP ${subRes.status}` };
+    if (!usageRes.ok) return { ok: false, error: `查询用量失败：HTTP ${usageRes.status}` };
+
+    const sub = await subRes.json().catch(() => ({}));
+    const usage = await usageRes.json().catch(() => ({}));
+
+    const hardLimitUsd = Number(sub.hard_limit_usd);
+    const totalUsageUsd = Number(usage.total_usage) / 100;
+    if (!Number.isFinite(hardLimitUsd) || !Number.isFinite(totalUsageUsd)) {
+      return { ok: false, error: '余额返回格式不认识' };
+    }
+
+    const remainingUsd = hardLimitUsd - totalUsageUsd;
     return {
       ok: true,
-      totalAvailable: body.total_available ?? null,
-      totalUsed: body.total_used ?? null,
-      totalGranted: body.total_granted ?? null,
+      remainingUsd,
+      usedUsd: totalUsageUsd,
+      grantedUsd: hardLimitUsd,
+      // quota 是服务端的内部单位，界面上按「可用 token 数」展示更直观
+      remainingQuota: Math.round(remainingUsd * QUOTA_PER_USD),
+      usedQuota: Math.round(totalUsageUsd * QUOTA_PER_USD),
+      grantedQuota: Math.round(hardLimitUsd * QUOTA_PER_USD),
     };
   } catch (error) {
     return { ok: false, error: describeError(error) };

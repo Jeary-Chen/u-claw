@@ -486,22 +486,87 @@ test('getBalance: 没有钱包时直接返回失败，不发请求', async () =>
   assert.equal(touched, false);
 });
 
-test('getBalance: 解析 total_available / total_used / total_granted', async () => {
+// 余额走两个 OpenAI 兼容的 billing 接口。这两个接口的形状是 2026-08-23 对着
+// api.u-claw.org.cn 实测出来的——技能文档里写的 /api/usage/token/ 在真环境是 404，
+// 单测全绿也发现不了，只有真打一次才知道（宪法第 5 条）。
+//   剩余 USD = hard_limit_usd - total_usage / 100
+//   500,000 quota = $1
+test('getBalance: 打 billing 两个接口，按 hard_limit_usd - total_usage/100 算余额', async () => {
   const store = createMemoryWalletStore({ apiKey: 'sk-old' });
+  const seen = [];
   const fetchImpl = async (url) => {
-    assert.ok(String(url).includes('/api/usage/token/'));
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({ total_available: 100, total_used: 20, total_granted: 120 }),
-    };
+    const u = String(url);
+    seen.push(u);
+    if (u.includes('/v1/dashboard/billing/subscription')) {
+      return { ok: true, status: 200, json: async () => ({ hard_limit_usd: 2 }) };
+    }
+    if (u.includes('/v1/dashboard/billing/usage')) {
+      // total_usage 单位是 USD×100，这里代表已用 $0.5
+      return { ok: true, status: 200, json: async () => ({ object: 'list', total_usage: 50 }) };
+    }
+    throw new Error(`不该打这个地址：${u}`);
   };
-  const r = await getBalance({ store, fetch: fetchImpl });
+
+  const r = await getBalance({ store, fetch: fetchImpl, today: '2026-08-23' });
   assert.equal(r.ok, true);
-  assert.equal(r.totalAvailable, 100);
-  assert.equal(r.totalUsed, 20);
-  assert.equal(r.totalGranted, 120);
+  assert.equal(r.grantedUsd, 2);
+  assert.equal(r.usedUsd, 0.5);
+  assert.equal(r.remainingUsd, 1.5);
+  assert.equal(r.remainingQuota, 750000, '1.5 USD × 500000 = 750000 quota');
+
+  assert.ok(seen.some((u) => u.includes('/v1/dashboard/billing/subscription')));
+  assert.ok(
+    seen.some((u) => u.includes('start_date=2020-01-01') && u.includes('end_date=2026-08-23')),
+    'usage 必须带上日期区间，否则服务端只给今天的用量'
+  );
+  assert.ok(!seen.some((u) => u.includes('/api/usage/token')), '不许再打那个 404 的老接口');
+});
+
+test('getBalance: billing 接口挂了要如实报失败，不能把余额显示成 0', async () => {
+  const store = createMemoryWalletStore({ apiKey: 'sk-old' });
+  const r = await getBalance({
+    store,
+    today: '2026-08-23',
+    fetch: async () => ({ ok: false, status: 404, json: async () => ({}) }),
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /HTTP 404/);
+});
+
+test('getBalance: 返回格式不认识时报错，不许拿 NaN 去显示', async () => {
+  const store = createMemoryWalletStore({ apiKey: 'sk-old' });
+  const r = await getBalance({
+    store,
+    today: '2026-08-23',
+    fetch: async () => ({ ok: true, status: 200, json: async () => ({ 啥也没有: 1 }) }),
+  });
+  assert.equal(r.ok, false);
 });
 
 // ── 平台无关：os 引入仅用于跳过判断，避免 lint 报未使用 ──────────────────────
 void os.platform;
+
+// ── 领取失败的人话提示（实测 2026-08-23：限流返回 429 {"error":"rate-limited"}）──
+
+test('claimWallet: 撞上服务端限流(429)时给人话，不甩 HTTP 状态码给用户', async () => {
+  const store = createMemoryWalletStore();
+  const r = await claimWallet({
+    store,
+    configPath: SHARED_CONFIG_PATH,
+    fetch: async () => ({ ok: false, status: 429, json: async () => ({ error: 'rate-limited' }) }),
+  });
+  assert.equal(r.ok, false);
+  assert.ok(!/HTTP|429/.test(r.error), `不该把状态码甩给用户，实际是：${r.error}`);
+  assert.match(r.error, /稍等|再试|太多/, '要告诉用户过一会儿再点');
+});
+
+test('claimWallet: 服务器 5xx 时提示检查网络，同样不甩状态码', async () => {
+  const store = createMemoryWalletStore();
+  const r = await claimWallet({
+    store,
+    configPath: SHARED_CONFIG_PATH,
+    fetch: async () => ({ ok: false, status: 503, json: async () => ({}) }),
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /连不上|网络/);
+});
