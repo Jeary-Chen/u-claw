@@ -45,18 +45,26 @@ test('portable Windows launchers disable OpenClaw bonjour discovery', () => {
   }
 });
 
-test('Windows startup keeps Config Center available even after model setup', () => {
+test('Windows startup only auto-opens Config Center when no model is configured (issue #24)', () => {
+  // Previously Windows-Start.bat force-opened Config Center on every launch,
+  // even for returning users who already picked a model -- that's the "config
+  // page pops up every single time I start it" complaint in issue #24. This
+  // replaced the old "always open Config Center" behavior below with the
+  // design documented in the repo CLAUDE.md: first run (no model configured)
+  // opens Config Center; configured runs land on the Dashboard only. The
+  // config-server itself still always starts, and Windows-Menu.bat still
+  // offers the setup wizard, so Config Center remains reachable manually.
   const script = readRepoFile('portable', 'Windows-Start.bat');
 
   assert.match(
     script,
-    /Opening Config Center[\s\S]*start "" http:\/\/127\.0\.0\.1:%CONFIG_PORT%\//,
-    'Windows-Start.bat should always open Config Center for model/channel changes',
+    /lib\\check-model-configured\.mjs/,
+    'should consult the model-configured helper before deciding whether to auto-open Config Center',
   );
-  assert.doesNotMatch(
+  assert.match(
     script,
-    /if not defined MODEL_CONFIGURED/,
-    'Config Center should not be gated on first-time setup only',
+    /if "%MODEL_CONFIGURED%"=="1" \([\s\S]*\) else \([\s\S]*start "" http:\/\/127\.0\.0\.1:%CONFIG_PORT%\/[\s\S]*\)/,
+    'Config Center should only auto-open in the "not configured" branch',
   );
 });
 
