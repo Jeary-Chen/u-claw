@@ -176,6 +176,10 @@ sleep 1
 echo -e "  ${CYAN}Starting OpenClaw on port $PORT...${NC}"
 echo ""
 
+# 清理上次崩溃 / 拔盘残留的 gateway 锁，避免 OpenClaw 报 "gateway already running"。
+# 只删持有进程已不在的死锁；活动实例的锁不动。静默、非阻塞。
+"$NODE_BIN" "$UCLAW_DIR/lib/clean-stale-lock.mjs" "$CONFIG_FILE" || true
+
 cd "$CORE_DIR"
 OPENCLAW_MJS="$CORE_DIR/node_modules/openclaw/openclaw.mjs"
 "$NODE_BIN" "$OPENCLAW_MJS" gateway run --allow-unconfigured --force --port $PORT &
