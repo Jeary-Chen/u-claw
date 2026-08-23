@@ -39,7 +39,7 @@ jobs:
           # Absolute paths so `cd "$core_dir"` later doesn't break `du`/`find`
           stage_dir="$(pwd)/dist/u-claw-portable-windows-${tag_name}"
           openclaw_version=$(tr -d '[:space:]' < OPENCLAW_VERSION)
-          node_version="v22.22.1"
+          node_version="v22.22.3"
           mirror_node="https://npmmirror.com/mirrors/node"
           mirror_npm="https://registry.npmmirror.com"
 
