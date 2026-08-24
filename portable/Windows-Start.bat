@@ -58,6 +58,22 @@ for /f "usebackq tokens=1,* delims==" %%a in (`""%NODE_BIN%" "%UCLAW_DIR%lib\por
     if "%%a"=="UCLAW_COMPILE_CACHE_DIR" set "NODE_COMPILE_CACHE=%%b"
     if "%%a"=="UCLAW_CACHE_ROOT" set "UCLAW_CACHE_ROOT=%%b"
 )
+
+REM Strip host-machine provider credential variables before starting the gateway.
+REM If the PC happens to have DASHSCOPE_API_KEY etc. set, OpenClaw treats that
+REM provider as configured, tries to install its plugin during startup migration,
+REM and the plugin install needs a node_modules junction that exFAT cannot create
+REM -- the gateway then never becomes ready ("works on A's PC, dead on B's PC").
+REM Inheriting those vars would also silently spend the host owner's API credits.
+set "UCLAW_STRIP_ENV="
+for /f "usebackq tokens=1,* delims==" %%a in (`""%NODE_BIN%" "%UCLAW_DIR%lib\strip-provider-env.mjs" 2^>nul"`) do (
+    if "%%a"=="UCLAW_STRIP_ENV" set "UCLAW_STRIP_ENV=%%b"
+)
+if defined UCLAW_STRIP_ENV (
+    for %%v in (%UCLAW_STRIP_ENV%) do set "%%v="
+    echo   Stripped host provider env vars: %UCLAW_STRIP_ENV%
+)
+
 if defined NODE_COMPILE_CACHE echo   Cache on local disk: %UCLAW_CACHE_ROOT%
 
 REM Default config (migrate legacy if present, otherwise create)

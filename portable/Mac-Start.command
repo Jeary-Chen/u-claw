@@ -83,6 +83,21 @@ while IFS='=' read -r _k _v; do
 done < <("$NODE_BIN" "$UCLAW_DIR/lib/portable-cache.mjs" "$STATE_DIR" "$UCLAW_DIR" 2>/dev/null)
 [ -n "$NODE_COMPILE_CACHE" ] && echo -e "  ${GREEN}Cache on local disk:${NC} $UCLAW_CACHE_ROOT"
 
+# ---- 4c. Strip host-machine provider credential variables (parity with Windows) ----
+# If the Mac happens to have DASHSCOPE_API_KEY etc. exported, OpenClaw treats that
+# provider as configured and tries to install its plugin during startup migration,
+# which can fail on read-only/odd media and blocks gateway ready. Inheriting those
+# vars would also silently spend the host owner's API credits.
+_UCLAW_STRIP_ENV="$("$NODE_BIN" "$UCLAW_DIR/lib/strip-provider-env.mjs" 2>/dev/null | sed 's/^UCLAW_STRIP_ENV=//')"
+if [ -n "$_UCLAW_STRIP_ENV" ]; then
+    # shellcheck disable=SC2086
+    for _v in $_UCLAW_STRIP_ENV; do
+        unset "$_v" 2>/dev/null
+    done
+    echo -e "  ${YELLOW}Stripped host provider env vars:${NC} $_UCLAW_STRIP_ENV"
+fi
+unset _UCLAW_STRIP_ENV
+
 # ---- 5. Default config ----
 if [ ! -f "$CONFIG_FILE" ]; then
     if [ -f "$DATA_DIR/config.json" ]; then
