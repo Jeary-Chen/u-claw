@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/readme/hero.svg" alt="U-Claw：随身携带的 AI 工作空间" width="100%" />
+  <img src="assets/readme/hero-image2.png" alt="U-Claw：随身携带的 AI 工作空间" width="100%" />
 </p>
 
 <h1 align="center">U-Claw（虾盘）</h1>
