@@ -28,12 +28,20 @@ REM U-Claw opens the local dashboard directly; disable mDNS discovery on Windows
 REM to avoid OpenClaw/@homebridge ciao crashes during bonjour re-advertise.
 set "OPENCLAW_DISABLE_BONJOUR=1"
 
-REM Check runtime
+REM Check runtime - missing? Auto-run setup (first run on a new PC / incomplete copy).
+REM setup.bat is fully non-interactive on the happy path; only failure branches pause.
 if not exist "%NODE_BIN%" (
-    echo   [ERROR] Node.js runtime not found
-    echo   Please ensure app\runtime\node-win-x64 is complete
-    pause
-    exit /b 1
+    echo   [WARN] Node.js runtime not found. Auto-running setup ^(1-3 min, needs network^)...
+    echo.
+    call "%UCLAW_DIR%setup.bat"
+    if not exist "%NODE_BIN%" (
+        echo   [ERROR] Setup finished but runtime still missing: %NODE_BIN%
+        echo   Retry manually: setup.bat   Logs: data\logs\
+        pause
+        exit /b 1
+    )
+    echo   [OK] Environment ready, continuing startup.
+    echo.
 )
 
 for /f "tokens=*" %%v in ('"%NODE_BIN%" --version') do set NODE_VER=%%v
