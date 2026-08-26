@@ -518,25 +518,35 @@ const server = http.createServer((req, res) => {
         let target = (base || '').trim();
         if (!target && provider === 'zai') target = 'https://open.bigmodel.cn/api/paas/v4';
         if (!target) throw new Error('该提供商不支持在线拉取，可直接手填模型名');
-        const url = target.replace(/\/+$/, '') + '/models';
+        // 只放行标准 http(s) 绝对地址；拒绝带凭据/fragment 的怪 URL，防 Key 被导向意外目标
+        let u;
+        try { u = new URL(target); } catch { throw new Error('API 地址格式不正确'); }
+        if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error('仅支持 http(s) 地址');
+        if (u.username || u.password || u.hash) throw new Error('API 地址含不支持的部分');
+        const url = u.origin + u.pathname.replace(/\/+$/, '') + '/models';
         const headers = { Authorization: 'Bearer ' + apiKey };
-        if (/anthropic\.com/.test(target)) {
+        if (/anthropic\.com/.test(u.hostname)) {
           headers['x-api-key'] = apiKey;
           headers['anthropic-version'] = '2023-06-01';
+          delete headers.Authorization;
         }
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 15000);
         let json;
         try {
-          const r = await fetch(url, { headers, signal: controller.signal });
-          clearTimeout(timer);
+          // redirect:'error'：Key 不跟随重定向，防止被 30x 导到第三方
+          const r = await fetch(url, { headers, signal: controller.signal, redirect: 'error' });
           if (!r.ok) throw new Error(r.status === 401 ? 'Key 校验失败(401)，检查是否填对' : '平台返回 HTTP ' + r.status);
           json = await r.json();
         } finally { clearTimeout(timer); }
-        const ids = ((json && json.data) || []).map(m => m.id).filter(Boolean).sort();
+        const seen = new Set();
+        const ids = ((json && json.data) || [])
+          .map(m => String(m && m.id || ''))
+          .filter(id => id && id.length <= 128 && !seen.has(id) && seen.add(id))
+          .sort();
         if (!ids.length) throw new Error('平台返回了空列表');
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, models: ids }));
+        res.end(JSON.stringify({ ok: true, models: ids.slice(0, 500) }));
       } catch (err) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: err.name === 'AbortError' ? '平台响应超时' : String(err.message || err) }));
