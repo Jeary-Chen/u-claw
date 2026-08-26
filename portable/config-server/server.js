@@ -331,10 +331,16 @@ function handleWeChatCancel(sessionKey) {
 }
 
 const server = http.createServer((req, res) => {
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // CORS：只允许同源访问（本服务只服务 127.0.0.1 上的配置中心页面）。
+  // 旧版 `*` 让任意网页都能跨域读 /api/config（明文 Key）并调用敏感接口——已收紧。
+  // loading.html 等 file:// 页面不发带凭据的跨域请求，无需放行 Origin。
+  const origin = req.headers.origin || '';
+  if (origin.startsWith('http://127.0.0.1') || origin.startsWith('http://localhost')) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Vary', 'Origin');
+  }
 
   if (req.method === 'OPTIONS') {
     res.writeHead(200);
@@ -500,6 +506,45 @@ const server = http.createServer((req, res) => {
   // API: Save config
   // 合并写入而非整体覆盖（issue #58）：磁盘上可能有 UI 不认识的字段（最典型是微信登录写入的
   // config.plugins.entries），整体覆盖会把它们静默冲掉。合并 + 原子写逻辑见 lib/merge-config.mjs。
+  if (req.url === '/api/provider-models' && req.method === 'POST') {
+    // 动态模型发现：带上用户的 Key 去问该平台的 /v1/models，返回实时模型 id 列表。
+    // Key 只在本次请求内使用，不落盘、不打日志。
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > 1e6) req.destroy(); });
+    req.on('end', async () => {
+      try {
+        const { provider, base, apiKey } = JSON.parse(body || '{}');
+        if (!apiKey) throw new Error('请先填写 API Key 再拉取');
+        let target = (base || '').trim();
+        if (!target && provider === 'zai') target = 'https://open.bigmodel.cn/api/paas/v4';
+        if (!target) throw new Error('该提供商不支持在线拉取，可直接手填模型名');
+        const url = target.replace(/\/+$/, '') + '/models';
+        const headers = { Authorization: 'Bearer ' + apiKey };
+        if (/anthropic\.com/.test(target)) {
+          headers['x-api-key'] = apiKey;
+          headers['anthropic-version'] = '2023-06-01';
+        }
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 15000);
+        let json;
+        try {
+          const r = await fetch(url, { headers, signal: controller.signal });
+          clearTimeout(timer);
+          if (!r.ok) throw new Error(r.status === 401 ? 'Key 校验失败(401)，检查是否填对' : '平台返回 HTTP ' + r.status);
+          json = await r.json();
+        } finally { clearTimeout(timer); }
+        const ids = ((json && json.data) || []).map(m => m.id).filter(Boolean).sort();
+        if (!ids.length) throw new Error('平台返回了空列表');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, models: ids }));
+      } catch (err) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: err.name === 'AbortError' ? '平台响应超时' : String(err.message || err) }));
+      }
+    });
+    return;
+  }
+
   if (req.url === '/api/config' && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => body += chunk);
