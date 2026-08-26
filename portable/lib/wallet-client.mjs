@@ -200,22 +200,49 @@ async function defaultVerifyReadOnly(apiKey, apiBaseOverride, fetchImpl = fetch)
 // C5 汇流点：换 key 之后必须同步到实际用 key 的地方——只此一处
 // ---------------------------------------------------------------------------
 
+/**
+ * 聊天模型清单 —— 单一真相源是 portable/models.json 的 uclaw-cloud 条目，
+ * 本函数只是把它翻译成 openclaw.json 的 models[] 形状。
+ *
+ * 为什么不在这里硬编码：2026-08-27 实测事故——这里曾经写死 1 个模型，而 models.json
+ * 早就精选了 6 个，结果控制台「换模型」下拉只剩 1 个可选（设备 X 盘同样中招）。
+ * 两处存同一事实必然漂移，所以代码里一个模型 ID 都不留。
+ *
+ * 兜底：models.json 缺失/损坏/没有 uclaw-cloud 条目时退回 DEFAULT_MODEL_ID 单模型，
+ * 绝不让启动/领取链路因此炸掉。
+ */
+function loadCloudModelIds() {
+  try {
+    const catalog = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'models.json'), 'utf8'));
+    const entry = Array.isArray(catalog.providers)
+      ? catalog.providers.find((p) => p && p.id === CLOUD_PROVIDER_ID)
+      : null;
+    const ids = [entry && entry.model, ...(entry && Array.isArray(entry.models) ? entry.models : [])]
+      .filter((s) => typeof s === 'string' && s.trim())
+      .map((s) => s.trim());
+    return Array.from(new Set(ids));
+  } catch {
+    return [DEFAULT_MODEL_ID];
+  }
+}
+
+/** 推理型模型标记（reasoning:true 让网关按推理模型分配思考预算；flash 类保持 false）。 */
+const REASONING_MODEL_IDS = new Set(['deepseek-v4-pro']);
+
 function buildProviderEntry(apiKey, apiBase) {
   return {
     baseUrl: apiBase || `${apiBaseUrl()}/v1`,
     apiKey,
     api: 'openai-completions',
-    models: [
-      {
-        id: DEFAULT_MODEL_ID,
-        name: DEFAULT_MODEL_ID,
-        reasoning: false,
-        input: ['text'],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 128000,
-        maxTokens: 8192,
-      },
-    ],
+    models: loadCloudModelIds().map((id) => ({
+      id,
+      name: id,
+      reasoning: REASONING_MODEL_IDS.has(id),
+      input: ['text'],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 128000,
+      maxTokens: 8192,
+    })),
   };
 }
 
