@@ -11,6 +11,12 @@ const CONFIG_PATH = path.join(__dirname, '../data/.openclaw/openclaw.json');
 const RUNTIME_PATH = path.join(__dirname, '../data/.openclaw/runtime.json');
 
 // ── WeChat Login State ──────────────────────────────────────────────────────
+// ⚠️ 微信接入降级开关（2026-08-27 专家会审定）：OpenClaw 微信插件存在上游 ESM 模块
+// 加载竞态兼容 bug（2026.7.1-2 内核及同系 2026.7.2-beta 仍存在），插件无人维护，
+// 四路 AI 全票判定：等上游明确修复，不为它赌内核升级。
+// 降级期：控制台入口明示「暂不可用」，start 接口直接 503（防浏览器缓存旧页/绕过前端）。
+// 上游修复后：把此处与 index.html 的 WECHAT_ENABLED 同改回 true 即恢复，其余代码不动。
+const WECHAT_ENABLED = false;
 const DEFAULT_WECHAT_BASE_URL = 'https://ilinkai.weixin.qq.com';
 const DEFAULT_ILINK_BOT_TYPE = '3';
 const ACTIVE_LOGIN_TTL_MS = 5 * 60000;
@@ -350,6 +356,11 @@ const server = http.createServer((req, res) => {
 
   // API: WeChat start login
   if (req.url === '/api/wechat/start' && req.method === 'POST') {
+    if (!WECHAT_ENABLED) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '微信插件存在上游兼容问题，暂时无法接入，修复后会随更新自动恢复。' }));
+      return;
+    }
     handleWeChatStart()
       .then(result => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
