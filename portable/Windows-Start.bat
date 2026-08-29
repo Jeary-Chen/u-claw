@@ -88,13 +88,14 @@ if not exist "%STATE_DIR%\openclaw.json" (
     echo.
 )
 
-REM Startup cache acceleration. OpenClaw keeps managed Chromium under STATE_DIR,
-REM so its runtime state is placed on the local disk; portable config/data stay on USB.
-REM This works on NTFS and exFAT alike. If local cache is unavailable, use USB state.
+REM Startup cache acceleration. Session/identity/state stay portable on USB;
+REM only the patched OpenClaw managed Chromium directory uses the local disk.
+REM Do not inherit a browser root from the calling shell.
+set "OPENCLAW_MANAGED_BROWSER_DIR="
 for /f "usebackq tokens=1,* delims==" %%a in (`""%NODE_BIN%" "%UCLAW_DIR%lib\portable-cache.mjs" "%STATE_DIR%" "%UCLAW_DIR%" 2^>nul"`) do (
     if "%%a"=="UCLAW_COMPILE_CACHE_DIR" set "NODE_COMPILE_CACHE=%%b"
     if "%%a"=="UCLAW_CACHE_ROOT" set "UCLAW_CACHE_ROOT=%%b"
-    if "%%a"=="UCLAW_RUNTIME_STATE_DIR" set "OPENCLAW_STATE_DIR=%%b"
+    if "%%a"=="UCLAW_MANAGED_BROWSER_DIR" set "OPENCLAW_MANAGED_BROWSER_DIR=%%b"
 )
 if defined NODE_COMPILE_CACHE echo   Cache on local disk: %UCLAW_CACHE_ROOT%
 

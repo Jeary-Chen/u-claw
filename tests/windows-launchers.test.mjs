@@ -45,17 +45,20 @@ test('portable Windows launchers disable OpenClaw bonjour discovery', () => {
   }
 });
 
-test('portable launchers place OpenClaw runtime state on the local cache disk', () => {
+test('portable launchers keep OpenClaw state portable and redirect only managed browser data', () => {
   const winStart = readRepoFile('portable', 'Windows-Start.bat');
   assert.match(
     winStart,
-    /UCLAW_RUNTIME_STATE_DIR" set "OPENCLAW_STATE_DIR=%%b/,
-    'Windows launcher must consume the local runtime state directory',
+    /UCLAW_MANAGED_BROWSER_DIR" set "OPENCLAW_MANAGED_BROWSER_DIR=%%b/,
+    'Windows launcher must consume the local managed browser directory',
   );
+  assert.match(winStart, /set "OPENCLAW_MANAGED_BROWSER_DIR="/);
+  assert.doesNotMatch(winStart, /UCLAW_RUNTIME_STATE_DIR/);
 
   const macStart = readRepoFile('portable', 'Mac-Start.command');
-  assert.match(macStart, /UCLAW_RUNTIME_STATE_DIR\) RUNTIME_STATE_DIR="\$_v"/);
-  assert.match(macStart, /OPENCLAW_STATE_DIR="\$\{RUNTIME_STATE_DIR:-\$STATE_DIR\}"/);
+  assert.match(macStart, /UCLAW_MANAGED_BROWSER_DIR\) export OPENCLAW_MANAGED_BROWSER_DIR="\$_v"/);
+  assert.match(macStart, /unset OPENCLAW_MANAGED_BROWSER_DIR/);
+  assert.match(macStart, /OPENCLAW_STATE_DIR="\$STATE_DIR"/);
 });
 
 test('Windows startup only auto-opens Config Center when no model is configured (issue #24)', () => {

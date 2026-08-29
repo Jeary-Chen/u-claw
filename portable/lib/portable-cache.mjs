@@ -13,10 +13,9 @@
 //   业务数据（openclaw.json、memory、账号）仍留在 U 盘 data/，便携性不变。
 //
 // 浏览器 user-data 的重定向手法：
-//   OpenClaw 的受管浏览器固定写在 OPENCLAW_STATE_DIR/browser/，而其 userDataDir
-//   配置只允许 existing-session 模式，不能用于受管浏览器。因此把"运行态"（state
-//   dir）放到本机盘，OPENCLAW_CONFIG_PATH 与业务资料仍固定在 U 盘；这不依赖 junction，
-//   在 NTFS、exFAT、FAT32 都有效。
+//   U-Claw 对固定版本 OpenClaw 打入受管浏览器目录补丁，读取
+//   OPENCLAW_MANAGED_BROWSER_DIR；因此只将 Chromium profile 放本机盘。STATE_DIR
+//   （SQLite 会话、设备身份、授权）始终留在 U 盘，不能与浏览器一起搬走。
 //
 // UUID 隔离（移植自 4.0）：
 //   缓存子目录名 = sha256("portable-id:<UUID>") 前 16 hex。UUID 存在 U 盘 STATE_DIR 里，
@@ -94,13 +93,16 @@ export function resolvePortableCache({
   }
 
   const compileCacheDir = join(root, 'node-compile-cache');
-  const runtimeStateDir = localCacheAvailable ? join(root, 'runtime-state') : stateDir;
-  const browserUserDataDir = join(runtimeStateDir, 'browser', 'openclaw', 'user-data');
-  for (const d of [compileCacheDir, runtimeStateDir, browserUserDataDir]) {
+  // If the host cache cannot be created, leave the variable empty. OpenClaw
+  // then uses its normal portable STATE_DIR/browser location; never invent a
+  // second state location or inherit a caller-supplied local browser root.
+  const managedBrowserDir = localCacheAvailable ? join(root, 'managed-browser') : '';
+  const browserUserDataDir = managedBrowserDir ? join(managedBrowserDir, 'openclaw', 'user-data') : '';
+  for (const d of [compileCacheDir, managedBrowserDir, browserUserDataDir].filter(Boolean)) {
     try { mkdirSync(d, { recursive: true }); } catch { /* 静默 */ }
   }
 
-  return { root, compileCacheDir, runtimeStateDir, browserUserDataDir, localCacheAvailable, cacheId };
+  return { root, compileCacheDir, managedBrowserDir, browserUserDataDir, localCacheAvailable, cacheId };
 }
 
 // CLI：打印 KEY=VALUE，供启动脚本逐行 set / export。
@@ -118,7 +120,7 @@ if (isMain) {
     process.stdout.write(
       `UCLAW_CACHE_ROOT=${c.root}\n` +
       `UCLAW_COMPILE_CACHE_DIR=${c.compileCacheDir}\n` +
-      `UCLAW_RUNTIME_STATE_DIR=${c.runtimeStateDir}\n` +
+      `UCLAW_MANAGED_BROWSER_DIR=${c.managedBrowserDir}\n` +
       `UCLAW_BROWSER_USER_DATA_DIR=${c.browserUserDataDir}\n` +
       `UCLAW_LOCAL_CACHE_AVAILABLE=${c.localCacheAvailable ? '1' : '0'}\n`,
     );

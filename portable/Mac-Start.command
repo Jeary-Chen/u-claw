@@ -134,20 +134,20 @@ CFGEOF
 fi
 
 # ---- 5b. 加速：把可重建的高 IO 数据放到本机硬盘 ----
-# OpenClaw 受管 Chromium 固定写在 STATE_DIR；故将运行态置于本机盘，配置和业务
-# 资料仍保留 U 盘。此方案不依赖 symlink，在 NTFS、exFAT/FAT32 上均有效。
+# 会话、设备身份与授权状态全部留在 U 盘；只有打过补丁的受管 Chromium 目录在本机。
+unset OPENCLAW_MANAGED_BROWSER_DIR
 while IFS='=' read -r _k _v; do
     case "$_k" in
         UCLAW_COMPILE_CACHE_DIR) export NODE_COMPILE_CACHE="$_v" ;;
         UCLAW_CACHE_ROOT) UCLAW_CACHE_ROOT="$_v" ;;
-        UCLAW_RUNTIME_STATE_DIR) RUNTIME_STATE_DIR="$_v" ;;
+        UCLAW_MANAGED_BROWSER_DIR) export OPENCLAW_MANAGED_BROWSER_DIR="$_v" ;;
     esac
 done < <("$NODE_BIN" "$UCLAW_DIR/lib/portable-cache.mjs" "$STATE_DIR" "$UCLAW_DIR" 2>/dev/null)
 [ -n "$NODE_COMPILE_CACHE" ] && echo -e "  ${GREEN}Cache on local disk:${NC} $UCLAW_CACHE_ROOT"
 
 # ---- 6. Set environment (portable mode) ----
 export OPENCLAW_HOME="$DATA_DIR"
-export OPENCLAW_STATE_DIR="${RUNTIME_STATE_DIR:-$STATE_DIR}"
+export OPENCLAW_STATE_DIR="$STATE_DIR"
 export OPENCLAW_CONFIG_PATH="$CONFIG_FILE"
 # U-Claw opens the local dashboard directly; disable mDNS/Bonjour discovery.
 # On macOS the bonjour plugin auto-starts and advertises the gateway on the LAN

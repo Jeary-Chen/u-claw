@@ -87,6 +87,12 @@ jobs:
             --no-audit \
             --no-fund \
             --omit=dev
+
+          # OpenClaw 2026.7.1-2 hard-codes managed Chromium below STATE_DIR.
+          # U-Claw keeps state (SQLite sessions/device identity) portable on USB,
+          # so apply a fail-closed vendor patch that adds a browser-only local root.
+          node "$GITHUB_WORKSPACE/portable/lib/patch-managed-browser-root.mjs" "$core_dir"
+          node --check "$core_dir/node_modules/openclaw/dist/chrome-DDq_K3xu.js"
           # 回到 repo 根：后续步骤（test suite / normalize / zip）都用相对路径，
           # 这个 step 把 cwd 留在 core/ 的话，"cd dist" 会报 No such file or directory
           # （v2.1.19 首跑实录：engines gate 和测试都过了，zip 步骤挂在 cd dist）。
