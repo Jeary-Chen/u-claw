@@ -145,6 +145,28 @@ while IFS='=' read -r _k _v; do
 done < <("$NODE_BIN" "$UCLAW_DIR/lib/portable-cache.mjs" "$STATE_DIR" "$UCLAW_DIR" 2>/dev/null)
 [ -n "$NODE_COMPILE_CACHE" ] && echo -e "  ${GREEN}Cache on local disk:${NC} $UCLAW_CACHE_ROOT"
 
+# ---- 5c. 单实例闸门（同一支 U 盘不能双击出两个 Gateway）----
+# 锁跟随 U 盘 state（不是本机缓存）：复制 U 盘也不会错误复用另一支盘的实例。
+INSTANCE_ROOT="$STATE_DIR"
+INSTANCE_STATUS="unavailable"
+INSTANCE_PORT=""
+while IFS='=' read -r _k _v; do
+    case "$_k" in
+        UCLAW_INSTANCE_STATUS) INSTANCE_STATUS="$_v" ;;
+        UCLAW_INSTANCE_PORT) INSTANCE_PORT="$_v" ;;
+    esac
+done < <("$NODE_BIN" "$UCLAW_DIR/lib/portable-instance-lock.mjs" acquire "$INSTANCE_ROOT" "$STATE_DIR" "$$" 2>/dev/null)
+
+if [ "$INSTANCE_STATUS" = "existing" ] || [ "$INSTANCE_STATUS" = "busy" ]; then
+    echo -e "  ${YELLOW}U-Claw is already running; reusing the existing instance.${NC}"
+    if [ -n "$INSTANCE_PORT" ]; then
+        open "http://127.0.0.1:$INSTANCE_PORT/#token=uclaw" 2>/dev/null || true
+    else
+        echo "  The existing instance is still starting. Please wait a moment."
+    fi
+    exit 0
+fi
+
 # ---- 6. Set environment (portable mode) ----
 export OPENCLAW_HOME="$DATA_DIR"
 export OPENCLAW_STATE_DIR="$STATE_DIR"
@@ -226,6 +248,9 @@ while lsof -i :$PORT >/dev/null 2>&1; do
     fi
 done
 
+# 端口确定后立刻发布给第二次点击的启动器；它会复用这个地址，不会再启动一份。
+"$NODE_BIN" "$UCLAW_DIR/lib/portable-instance-lock.mjs" publish "$INSTANCE_ROOT" "$STATE_DIR" "$$" "$PORT" 2>/dev/null || true
+
 # ---- 9. Start Config Server in background ----
 echo -e "  ${CYAN}Starting Config Center on port 18788...${NC}"
 CONFIG_SERVER="$UCLAW_DIR/config-server"
@@ -243,7 +268,7 @@ echo ""
 
 cd "$CORE_DIR"
 OPENCLAW_MJS="$CORE_DIR/node_modules/openclaw/openclaw.mjs"
-"$NODE_BIN" "$OPENCLAW_MJS" gateway run --allow-unconfigured --force --port $PORT &
+"$NODE_BIN" "$OPENCLAW_MJS" gateway run --allow-unconfigured --port $PORT &
 GW_PID=$!
 
 # ---- 11. 立刻打开"启动首屏"，给用户即时反馈（移植自 4.0 splash）----
@@ -293,6 +318,7 @@ echo ""
 cleanup() {
     kill $GW_PID 2>/dev/null
     kill $CONFIG_PID 2>/dev/null
+    "$NODE_BIN" "$UCLAW_DIR/lib/portable-instance-lock.mjs" release "$INSTANCE_ROOT" "$STATE_DIR" "$$" 2>/dev/null || true
     echo ""
     echo -e "  🦞 U-Claw stopped."
     exit 0
@@ -324,5 +350,6 @@ if [ "$GW_EXIT" -ne 0 ]; then
     echo -e "  ${CYAN}反馈时把这个文件发给我们即可。${NC}"
 fi
 kill $CONFIG_PID 2>/dev/null
+"$NODE_BIN" "$UCLAW_DIR/lib/portable-instance-lock.mjs" release "$INSTANCE_ROOT" "$STATE_DIR" "$$" 2>/dev/null || true
 echo ""
 echo -e "  🦞 U-Claw stopped."

@@ -98,6 +98,8 @@ cp -R portable/ /Volumes/你的U盘/U-Claw/   # Mac
 
 **完成！** 插上 U 盘，双击启动脚本就能用。
 
+> 同一支 U 盘同时只会启动一个 U-Claw 实例。重复双击会打开已运行的 Dashboard，不会另起端口或并发写入会话；如需重启，请先退出原启动窗口。
+
 ### U 盘功能一览
 
 | 功能 | Mac | Windows |
@@ -387,6 +389,8 @@ cp -R portable/ /Volumes/YOUR_USB/U-Claw/   # Mac
 ```
 
 **Done!** Plug in the USB, double-click the start script, and you're running AI.
+
+> Only one U-Claw instance runs per USB drive. A second click reopens the existing Dashboard instead of selecting another port or writing sessions concurrently. To restart, exit the original launcher first.
 
 ### USB Features
 

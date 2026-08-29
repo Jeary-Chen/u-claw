@@ -99,6 +99,32 @@ for /f "usebackq tokens=1,* delims==" %%a in (`""%NODE_BIN%" "%UCLAW_DIR%lib\por
 )
 if defined NODE_COMPILE_CACHE echo   Cache on local disk: %UCLAW_CACHE_ROOT%
 
+REM Launcher-level single-instance guard. OpenClaw's own lock is created too late:
+REM a second double-click otherwise picks another port and writes the same USB state.
+REM PowerShell's parent is FOR /F's temporary cmd.exe; its grandparent is the cmd.exe
+REM hosting this .bat and remains alive until the gateway exits.
+REM Keep the lock with USB state, never in a reusable host cache shared by cloned drives.
+set "INSTANCE_ROOT=%STATE_DIR%"
+set "UCLAW_LAUNCHER_PID="
+for /f "usebackq tokens=*" %%p in (`powershell -NoProfile -Command "$p=Get-CimInstance Win32_Process -Filter ('ProcessId=' + $PID); $q=Get-CimInstance Win32_Process -Filter ('ProcessId=' + $p.ParentProcessId); $q.ParentProcessId" 2^>nul`) do set "UCLAW_LAUNCHER_PID=%%p"
+set "INSTANCE_STATUS=unavailable"
+set "INSTANCE_PORT="
+if defined UCLAW_LAUNCHER_PID (
+    for /f "usebackq tokens=1,* delims==" %%a in (`"%NODE_BIN%" "%UCLAW_DIR%lib\portable-instance-lock.mjs" acquire "%INSTANCE_ROOT%" "%STATE_DIR%" "%UCLAW_LAUNCHER_PID%" 2^>nul`) do (
+        if "%%a"=="UCLAW_INSTANCE_STATUS" set "INSTANCE_STATUS=%%b"
+        if "%%a"=="UCLAW_INSTANCE_PORT" set "INSTANCE_PORT=%%b"
+    )
+)
+if "%INSTANCE_STATUS%"=="existing" goto :reuse_existing_instance
+if "%INSTANCE_STATUS%"=="busy" goto :reuse_existing_instance
+goto :instance_check_done
+:reuse_existing_instance
+echo   U-Claw is already running; reusing the existing instance.
+if defined INSTANCE_PORT start "" http://127.0.0.1:%INSTANCE_PORT%/#token=uclaw
+if not defined INSTANCE_PORT echo   The existing instance is still starting. Please wait a moment.
+exit /b 0
+:instance_check_done
+
 REM Check dependencies
 REM Note: avoid unescaped parens inside this block -- cmd.exe treats ) as block-end.
 if not exist "%CORE_DIR%\node_modules" (
@@ -208,8 +234,12 @@ if %errorlevel%==0 (
         pause
         exit /b 1
     )
-    goto :check_port
+goto :check_port
 )
+
+REM Publish the chosen port before launching child processes so a second click
+REM reuses this exact instance instead of selecting 18790/18791.
+if defined UCLAW_LAUNCHER_PID "%NODE_BIN%" "%UCLAW_DIR%lib\portable-instance-lock.mjs" publish "%INSTANCE_ROOT%" "%STATE_DIR%" "%UCLAW_LAUNCHER_PID%" %PORT% >nul 2>&1
 
 echo   Starting OpenClaw on port %PORT%...
 echo.
@@ -269,8 +299,10 @@ REM owning process is gone (or corrupt) are removed; a live instance is left alo
 
 cd /d "%CORE_DIR%"
 set "OPENCLAW_MJS=%CORE_DIR%\node_modules\openclaw\openclaw.mjs"
-"%NODE_BIN%" "%OPENCLAW_MJS%" gateway run --allow-unconfigured --force --port %PORT%
+"%NODE_BIN%" "%OPENCLAW_MJS%" gateway run --allow-unconfigured --port %PORT%
 set "GW_EXIT=%errorlevel%"
+
+if defined UCLAW_LAUNCHER_PID "%NODE_BIN%" "%UCLAW_DIR%lib\portable-instance-lock.mjs" release "%INSTANCE_ROOT%" "%STATE_DIR%" "%UCLAW_LAUNCHER_PID%" >nul 2>&1
 
 echo.
 if not "%GW_EXIT%"=="0" if not "%GW_EXIT%"=="-1073741510" (

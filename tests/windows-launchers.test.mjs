@@ -61,6 +61,26 @@ test('portable launchers keep OpenClaw state portable and redirect only managed 
   assert.match(macStart, /OPENCLAW_STATE_DIR="\$STATE_DIR"/);
 });
 
+test('Mac launcher gates duplicate clicks behind the portable single-instance lock', () => {
+  const macStart = readRepoFile('portable', 'Mac-Start.command');
+  assert.match(macStart, /portable-instance-lock\.mjs" acquire/, 'Mac launcher must acquire the launcher lock before choosing a port');
+  assert.match(macStart, /UCLAW_INSTANCE_STATUS\) INSTANCE_STATUS=/, 'Mac launcher must consume the lock status');
+  assert.match(macStart, /U-Claw is already running; reusing the existing instance\./, 'second click should reuse instead of starting another gateway');
+  assert.match(macStart, /portable-instance-lock\.mjs" publish/, 'selected port must be published for a second click');
+  assert.match(macStart, /portable-instance-lock\.mjs" release/, 'launcher must release its lock on exit');
+  assert.doesNotMatch(macStart, /gateway run --allow-unconfigured --force --port/, 'launcher must not force-kill a process on a selected port');
+});
+
+test('Windows launcher gates duplicate clicks behind the portable single-instance lock', () => {
+  const winStart = readRepoFile('portable', 'Windows-Start.bat');
+  assert.match(winStart, /portable-instance-lock\.mjs" acquire/, 'Windows launcher must acquire the launcher lock before choosing a port');
+  assert.match(winStart, /\$q\.ParentProcessId/, 'Windows launcher must keep the batch-host cmd PID, not FOR /F\'s temporary cmd PID');
+  assert.match(winStart, /U-Claw is already running; reusing the existing instance\./, 'second click should reuse instead of starting another gateway');
+  assert.match(winStart, /portable-instance-lock\.mjs" publish/, 'selected port must be published for a second click');
+  assert.match(winStart, /portable-instance-lock\.mjs" release/, 'launcher must release its lock after the gateway exits');
+  assert.doesNotMatch(winStart, /gateway run --allow-unconfigured --force --port/, 'launcher must not force-kill a process on a selected port');
+});
+
 test('Windows startup only auto-opens Config Center when no model is configured (issue #24)', () => {
   // Previously Windows-Start.bat force-opened Config Center on every launch,
   // even for returning users who already picked a model -- that's the "config
