@@ -141,6 +141,15 @@ PKGJSON
     NPM_BIN="$NODE_TARGET/bin/npm"
     npm_config_cache="$APP_DIR/.npm-cache" "$NODE_BIN" "$NPM_BIN" install --prefix "$CORE_DIR" --registry="$MIRROR" --ignore-scripts --no-audit --no-fund --omit=dev
 
+    # Keep durable OpenClaw state on the USB volume, but redirect only the
+    # managed Chromium profile to the host cache.  These vendor patches are
+    # intentionally fail-closed: a changed upstream bundle must be reviewed
+    # instead of silently producing a partially portable installation.
+    "$NODE_BIN" "$SCRIPT_DIR/lib/patch-managed-browser-root.mjs" "$CORE_DIR"
+    "$NODE_BIN" "$SCRIPT_DIR/lib/patch-device-pairing-retry.mjs" "$CORE_DIR"
+    "$NODE_BIN" --check "$CORE_DIR/node_modules/openclaw/dist/chrome-DDq_K3xu.js"
+    "$NODE_BIN" --check "$CORE_DIR/node_modules/openclaw/dist/replace-file-DfwQ8_Mi.js"
+
     echo -e "  ${GREEN}✓${NC} OpenClaw 安装完成"
 fi
 
