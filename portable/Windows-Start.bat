@@ -4,7 +4,7 @@ title U-Claw - Portable AI Agent
 
 echo.
 echo   ========================================
-echo     U-Claw v1.1 - Portable AI Agent
+echo     U-Claw v2.1 - Portable AI Agent
 echo   ========================================
 echo.
 
@@ -57,16 +57,6 @@ if not exist "%DATA_DIR%\memory" mkdir "%DATA_DIR%\memory"
 if not exist "%DATA_DIR%\backups" mkdir "%DATA_DIR%\backups"
 if not exist "%DATA_DIR%\logs" mkdir "%DATA_DIR%\logs"
 
-REM Startup cache acceleration.
-REM portable-cache.mjs chooses a local-disk cache slot and redirects
-REM .openclaw\browser there with a junction when possible.
-REM Browser user data and V8 compile cache stay off the USB drive.
-REM If this fails, startup continues with the cache on the USB drive.
-for /f "usebackq tokens=1,* delims==" %%a in (`""%NODE_BIN%" "%UCLAW_DIR%lib\portable-cache.mjs" "%STATE_DIR%" "%UCLAW_DIR%" 2^>nul"`) do (
-    if "%%a"=="UCLAW_COMPILE_CACHE_DIR" set "NODE_COMPILE_CACHE=%%b"
-    if "%%a"=="UCLAW_CACHE_ROOT" set "UCLAW_CACHE_ROOT=%%b"
-)
-
 REM Strip host-machine provider credential variables before starting the gateway.
 REM If the PC happens to have DASHSCOPE_API_KEY etc. set, OpenClaw treats that
 REM provider as configured, tries to install its plugin during startup migration,
@@ -97,6 +87,16 @@ if not exist "%STATE_DIR%\openclaw.json" (
     )
     echo.
 )
+
+REM Startup cache acceleration. OpenClaw keeps managed Chromium under STATE_DIR,
+REM so its runtime state is placed on the local disk; portable config/data stay on USB.
+REM This works on NTFS and exFAT alike. If local cache is unavailable, use USB state.
+for /f "usebackq tokens=1,* delims==" %%a in (`""%NODE_BIN%" "%UCLAW_DIR%lib\portable-cache.mjs" "%STATE_DIR%" "%UCLAW_DIR%" 2^>nul"`) do (
+    if "%%a"=="UCLAW_COMPILE_CACHE_DIR" set "NODE_COMPILE_CACHE=%%b"
+    if "%%a"=="UCLAW_CACHE_ROOT" set "UCLAW_CACHE_ROOT=%%b"
+    if "%%a"=="UCLAW_RUNTIME_STATE_DIR" set "OPENCLAW_STATE_DIR=%%b"
+)
+if defined NODE_COMPILE_CACHE echo   Cache on local disk: %UCLAW_CACHE_ROOT%
 
 REM Check dependencies
 REM Note: avoid unescaped parens inside this block -- cmd.exe treats ) as block-end.

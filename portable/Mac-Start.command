@@ -25,7 +25,7 @@ NC='\033[0m'
 echo ""
 echo -e "${CYAN}"
 echo "  ╔══════════════════════════════════════╗"
-echo "  ║     🦞 U-Claw v1.1                  ║"
+echo "  ║     🦞 U-Claw v2.1                  ║"
 echo "  ║     Portable AI Agent               ║"
 echo "  ╚══════════════════════════════════════╝"
 echo -e "${NC}"
@@ -97,20 +97,7 @@ echo ""
 # ---- 4. Init data directories ----
 mkdir -p "$STATE_DIR" "$DATA_DIR/memory" "$DATA_DIR/backups" "$DATA_DIR/logs"
 
-# ---- 4b. 加速：把"重 IO、可重建"的缓存从 U 盘搬到本机硬盘 ----
-# portable-cache.mjs 算出本机缓存目录(~/Library/Caches/U-Claw/slot，UUID 隔离，
-# 换盘符仍复用)，并把 .openclaw/browser 做成 symlink 指向本机盘。
-# 浏览器 user-data(几百 MB 随机小写)和 V8 编译缓存因此落本机盘，不再拖慢 U 盘。
-# 静默失败：取不到就跳过，缓存留 U 盘，照常启动。
-while IFS='=' read -r _k _v; do
-    case "$_k" in
-        UCLAW_COMPILE_CACHE_DIR) export NODE_COMPILE_CACHE="$_v" ;;
-        UCLAW_CACHE_ROOT) UCLAW_CACHE_ROOT="$_v" ;;
-    esac
-done < <("$NODE_BIN" "$UCLAW_DIR/lib/portable-cache.mjs" "$STATE_DIR" "$UCLAW_DIR" 2>/dev/null)
-[ -n "$NODE_COMPILE_CACHE" ] && echo -e "  ${GREEN}Cache on local disk:${NC} $UCLAW_CACHE_ROOT"
-
-# ---- 4c. Strip host-machine provider credential variables (parity with Windows) ----
+# ---- 4b. Strip host-machine provider credential variables (parity with Windows) ----
 # If the Mac happens to have DASHSCOPE_API_KEY etc. exported, OpenClaw treats that
 # provider as configured and tries to install its plugin during startup migration,
 # which can fail on read-only/odd media and blocks gateway ready. Inheriting those
@@ -146,9 +133,21 @@ CFGEOF
     echo ""
 fi
 
+# ---- 5b. 加速：把可重建的高 IO 数据放到本机硬盘 ----
+# OpenClaw 受管 Chromium 固定写在 STATE_DIR；故将运行态置于本机盘，配置和业务
+# 资料仍保留 U 盘。此方案不依赖 symlink，在 NTFS、exFAT/FAT32 上均有效。
+while IFS='=' read -r _k _v; do
+    case "$_k" in
+        UCLAW_COMPILE_CACHE_DIR) export NODE_COMPILE_CACHE="$_v" ;;
+        UCLAW_CACHE_ROOT) UCLAW_CACHE_ROOT="$_v" ;;
+        UCLAW_RUNTIME_STATE_DIR) RUNTIME_STATE_DIR="$_v" ;;
+    esac
+done < <("$NODE_BIN" "$UCLAW_DIR/lib/portable-cache.mjs" "$STATE_DIR" "$UCLAW_DIR" 2>/dev/null)
+[ -n "$NODE_COMPILE_CACHE" ] && echo -e "  ${GREEN}Cache on local disk:${NC} $UCLAW_CACHE_ROOT"
+
 # ---- 6. Set environment (portable mode) ----
 export OPENCLAW_HOME="$DATA_DIR"
-export OPENCLAW_STATE_DIR="$STATE_DIR"
+export OPENCLAW_STATE_DIR="${RUNTIME_STATE_DIR:-$STATE_DIR}"
 export OPENCLAW_CONFIG_PATH="$CONFIG_FILE"
 # U-Claw opens the local dashboard directly; disable mDNS/Bonjour discovery.
 # On macOS the bonjour plugin auto-starts and advertises the gateway on the LAN
