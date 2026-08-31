@@ -19,7 +19,6 @@ test('上游跟踪按 git tag 版本序计算并安全跳过撞车版本', () =>
 // release.yml（发版闸门）与 portable/setup.sh（Mac 安装路径）都必须引用同一个文件。
 // 用「从 patch 脚本抽出」而不是硬编码，上游换 hash 后这里自动跟红，不用靠人记。
 function extractBundles(patchSource) {
-  const constMatches = [...patchSource.matchAll(/([A-Za-z-]+(?:-[A-Za-z0-9_-]+)*)\.js/g)];
   const bundles = new Set();
   // BUNDLE 常量（patch2）与 bundlePath 字面量（patch1）
   for (const m of patchSource.matchAll(/(?:BUNDLE = 'node_modules\/openclaw\/dist\/|openclaw\/dist\/)([A-Za-z][A-Za-z0-9._-]*\.js)'/g)) {
