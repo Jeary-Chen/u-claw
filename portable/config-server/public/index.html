@@ -747,8 +747,13 @@ async function saveConfig() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(config)
         });
-        if (!res.ok) throw new Error('保存失败');
-        showToast('配置已保存！');
+        var result = await res.json().catch(function() { return {}; });
+        if (!res.ok || !result.ok) {
+            showToast(result.error || '保存失败', true);
+            return;
+        }
+        if (result.pendingRestart) showToast('已保存，启动 Gateway 后生效');
+        else showToast('配置已保存并生效');
         goStep(3);
     } catch (e) {
         showToast('保存失败: ' + e.message, true);
@@ -969,6 +974,19 @@ async function checkGateway() {
 }
 
 // --- Load existing config ---
+function fillApiKeyFromSaved(value) {
+    var input = document.getElementById('apiKey');
+    input.value = '';
+    if (value && typeof value === 'object') {
+        input.placeholder = '密钥已安全保存（引用）；输入新值可更换';
+    } else if (typeof value === 'string' && /^[A-Za-z0-9_-]{3,12}\.\.\.[A-Za-z0-9_-]{3,8}$/.test(value)) {
+        input.placeholder = '已保存的密钥已脱敏；输入新值可更换';
+    } else {
+        input.placeholder = 'sk-...';
+        if (value) input.value = value;
+    }
+}
+
 async function loadConfig() {
     try {
         var res = await fetch('/api/config');
@@ -977,7 +995,7 @@ async function loadConfig() {
         if (cfg.env && cfg.env.ZAI_API_KEY) {
             var card = document.querySelector('#step1 .model-card[data-provider="zai"]');
             if (card) card.click();
-            document.getElementById('apiKey').value = cfg.env.ZAI_API_KEY;
+            fillApiKeyFromSaved(cfg.env.ZAI_API_KEY);
             return;
         }
 
@@ -993,7 +1011,7 @@ async function loadConfig() {
                         candidate.dataset.model === modelId;
                 }) || document.querySelector('#step1 .model-card[data-provider="' + providerName + '"]');
                 if (card) card.click();
-                if (p.apiKey) document.getElementById('apiKey').value = p.apiKey;
+                if (p.apiKey) fillApiKeyFromSaved(p.apiKey);
                 // 回填的模型可能与卡片默认不同，进 step2 时下拉要显示已存值
                 if (modelId) selectedModel = modelId;
             }

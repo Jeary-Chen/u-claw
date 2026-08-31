@@ -2,13 +2,18 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { execFile } = require('child_process');
 const { deflateSync } = require('zlib');
 const crypto = require('crypto');
 
 const PORT_RANGE_START = 18788;
 const PORT_RANGE_END = 18798;
-const CONFIG_PATH = path.join(__dirname, '../data/.openclaw/openclaw.json');
-const RUNTIME_PATH = path.join(__dirname, '../data/.openclaw/runtime.json');
+const OPENCLAW_HOME = process.env.OPENCLAW_HOME || path.join(__dirname, '../data');
+const OPENCLAW_STATE_DIR = process.env.OPENCLAW_STATE_DIR || path.join(OPENCLAW_HOME, '.openclaw');
+const OPENCLAW_CONFIG_PATH = process.env.OPENCLAW_CONFIG_PATH || path.join(OPENCLAW_STATE_DIR, 'openclaw.json');
+const OPENCLAW_MJS = path.join(__dirname, '../app/core/node_modules/openclaw/openclaw.mjs');
+const CONFIG_PATH = OPENCLAW_CONFIG_PATH;
+const RUNTIME_PATH = path.join(OPENCLAW_STATE_DIR, 'runtime.json');
 
 // ── WeChat Login State ──────────────────────────────────────────────────────
 // ⚠️ 微信接入降级开关（2026-08-27 专家会审定）：OpenClaw 微信插件存在上游 ESM 模块
@@ -24,8 +29,7 @@ const QR_POLL_TIMEOUT_MS = 35000;
 const MAX_QR_REFRESH_COUNT = 3;
 
 // Resolve ~/.openclaw/ directory
-const OPENCLAW_DIR = process.env.OPENCLAW_STATE_DIR ||
-  path.join(process.env.USERPROFILE || process.env.HOME || require('os').homedir(), '.openclaw');
+const OPENCLAW_DIR = OPENCLAW_STATE_DIR;
 const WECHAT_STATE_DIR = path.join(OPENCLAW_DIR, 'openclaw-weixin');
 const WECHAT_ACCOUNTS_DIR = path.join(WECHAT_STATE_DIR, 'accounts');
 const WECHAT_ACCOUNT_INDEX_FILE = path.join(WECHAT_STATE_DIR, 'accounts.json');
@@ -35,6 +39,125 @@ const USB_PLUGIN_DIR = path.join(__dirname, '../app/extensions/openclaw-weixin')
 const INSTALLED_PLUGIN_DIR = path.join(OPENCLAW_DIR, 'extensions', 'openclaw-weixin');
 
 const activeLogins = new Map();
+
+// OpenClaw 2026.8.1 会把配置文件里的敏感值改写成掩码；模型 Key 只能保存为
+// SecretRef，明文仅通过 secrets CLI 的 stdin 进入本机 secret store。
+function isMaskedKey(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{3,12}\.\.\.[A-Za-z0-9_-]{3,8}$/.test(value);
+}
+
+function isSecretRef(value) {
+  return value && typeof value === 'object' && value.source === 'store' && typeof value.id === 'string';
+}
+
+function secretStoreEnv() {
+  return {
+    ...process.env,
+    OPENCLAW_HOME,
+    OPENCLAW_STATE_DIR,
+    OPENCLAW_CONFIG_PATH,
+  };
+}
+
+function runSecretsStoreSet(name, value) {
+  if (!fs.existsSync(OPENCLAW_MJS)) return Promise.resolve({ ok: false, reason: 'cli-missing' });
+  return new Promise((resolve) => {
+    const child = execFile(process.execPath, [
+      OPENCLAW_MJS, 'secrets', 'store', 'set', name, '--kind', 'secret', '--value-file', '-',
+    ], {
+      env: secretStoreEnv(),
+      timeout: 60000,
+      windowsHide: true,
+      maxBuffer: 64 * 1024,
+    }, (error) => {
+      if (error) {
+        resolve({ ok: false, reason: error.killed ? 'timeout' : (error.code || 'store-failed') });
+        return;
+      }
+      resolve({ ok: true });
+    });
+    // execFile 默认 stdio 为 pipe；Key 只写 stdin，绝不能放到 argv 或日志中。
+    child.stdin.on('error', () => {});
+    child.stdin.end(value, 'utf8');
+  });
+}
+
+function secretName(prefix, id) {
+  return prefix + String(id).toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+}
+
+class SecretSaveError extends Error {}
+
+async function storeSecretRef(name, value) {
+  if (isMaskedKey(value)) {
+    throw new SecretSaveError('检测到已脱敏的密钥串，请重新输入完整 API Key');
+  }
+  if (isSecretRef(value) || typeof value !== 'string' || !value) return value;
+
+  const result = await runSecretsStoreSet(name, value);
+  if (!result.ok) {
+    throw new SecretSaveError('无法安全保存 API Key（' + result.reason + '）');
+  }
+  return { source: 'store', provider: 'default', id: name };
+}
+
+function isSecretEnvName(name) {
+  return /(?:API[_-]?KEY|KEY|TOKEN|SECRET|PASSWORD)$/i.test(name);
+}
+
+async function moveIncomingSecretsToStore(incoming) {
+  const providers = incoming && incoming.models && incoming.models.providers;
+  if (providers && typeof providers === 'object') {
+    for (const [providerId, provider] of Object.entries(providers)) {
+      if (!provider || typeof provider !== 'object' || !Object.prototype.hasOwnProperty.call(provider, 'apiKey')) continue;
+      provider.apiKey = await storeSecretRef(secretName('UCLAW_MODEL_', providerId), provider.apiKey);
+    }
+  }
+
+  if (incoming && incoming.env && typeof incoming.env === 'object') {
+    for (const [envName, value] of Object.entries(incoming.env)) {
+      if (!isSecretEnvName(envName)) continue;
+      incoming.env[envName] = await storeSecretRef(secretName('UCLAW_MODEL_', envName), value);
+    }
+  }
+}
+
+function gatewayPortFromRuntime() {
+  try {
+    const runtime = JSON.parse(fs.readFileSync(RUNTIME_PATH, 'utf8'));
+    const configServerPort = Number(runtime.configServerPort);
+    return Number.isInteger(configServerPort) ? configServerPort + 1 : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function isConnectionError(error, stderr) {
+  if (error && (error.killed || error.code === 'ETIMEDOUT')) return true;
+  const detail = [error && error.code, error && error.message, stderr].filter(Boolean).join(' ');
+  return /ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT|connect(?:ion)?|gateway.*(?:unreachable|unavailable|not running)|timed?\s*out/i.test(detail);
+}
+
+function runSecretsReload() {
+  if (!fs.existsSync(OPENCLAW_MJS)) return Promise.resolve({ reloadError: 'cli-missing' });
+  const args = [OPENCLAW_MJS, 'secrets', 'reload', '--json'];
+  const gatewayPort = gatewayPortFromRuntime();
+  if (gatewayPort) args.push('--port', String(gatewayPort));
+  args.push('--token', 'uclaw', '--timeout', '8000');
+
+  return new Promise((resolve) => {
+    execFile(process.execPath, args, {
+      env: secretStoreEnv(),
+      timeout: 10000,
+      windowsHide: true,
+      maxBuffer: 64 * 1024,
+    }, (error, _stdout, stderr) => {
+      if (!error) return resolve({ mode: 'live' });
+      if (isConnectionError(error, stderr)) return resolve({ pendingRestart: true });
+      resolve({ reloadError: String((stderr || error.message || error.code || 'reload-failed')).trim().slice(0, 500) });
+    });
+  });
+}
 
 // ── QR Code PNG Renderer (pure Node.js, no external deps) ───────────────────
 
@@ -573,13 +696,23 @@ const server = http.createServer((req, res) => {
       (async () => {
         try {
           const incoming = JSON.parse(body);
+          try {
+            await moveIncomingSecretsToStore(incoming);
+          } catch (err) {
+            if (err instanceof SecretSaveError) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: false, error: err.message }));
+              return;
+            }
+            throw err;
+          }
           const { saveConfigMerged } = await import('../lib/merge-config.mjs');
           saveConfigMerged(CONFIG_PATH, incoming);
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: true }));
+          res.end(JSON.stringify({ ok: true, ...await runSecretsReload() }));
         } catch (err) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: err.message }));
+          res.end(JSON.stringify({ ok: false, error: err.message }));
         }
       })();
     });
