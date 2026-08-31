@@ -163,15 +163,31 @@ jobs:
         if: steps.decide.outputs.changed == 'true'
         id: nextver
         run: |
-          cur="${{ steps.current.outputs.shell_ver }}"
+          git fetch --tags --force
+          latest=$(git tag -l 'v*' --sort=-v:refname | head -1)
+          if [ -z "$latest" ]; then
+            echo "::error::找不到任何 v* tag，无法计算下一个发布版本"
+            exit 1
+          fi
+          cur="${latest#v}"
           IFS='.' read -r MA MI PA <<< "$cur"
+          if [ -z "$MA" ] || [ -z "$MI" ] || [ -z "$PA" ] || [ "$MA" != "${MA//[!0-9]/}" ] || [ "$MI" != "${MI//[!0-9]/}" ] || [ "$PA" != "${PA//[!0-9]/}" ]; then
+            echo "::error::tag $latest 不是 MA.MI.PA 版本号，拒绝计算"
+            exit 1
+          fi
           PA=$((PA + 1))
           next="${MA}.${MI}.${PA}"
-          echo "壳版本 bump: $cur → $next"
+          if git rev-parse -q --verify "refs/tags/v$next" >/dev/null; then
+            echo "tag v$next already exists，跳过本次发版。"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "版本真相源 tag: $latest；下一个版本: $next"
           echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Apply changes (pin + version files)
-        if: steps.decide.outputs.changed == 'true' && github.event.inputs.dry_run != 'true'
+        if: steps.decide.outputs.changed == 'true' && steps.nextver.outputs.skip != 'true' && github.event.inputs.dry_run != 'true'
         run: |
           latest="${{ steps.upstream.outputs.latest }}"
           next="${{ steps.nextver.outputs.next }}"
@@ -180,14 +196,13 @@ jobs:
           printf '%s\n' "$latest" > OPENCLAW_VERSION
           printf '%s\n' "$latest" > portable/OPENCLAW_VERSION
 
-          # 2) bump 壳版本（package.json）。release.yml 仍会从 tag 同步，
-          #    这里写一份让 main 分支也保持一致。
+          # 2) 版本真相源是 git tag；此文件为展示镜像（已废弃桌面版残留），每日 bump 时同步。
           node -e "const f='u-claw-app/package.json';const p=require('./'+f);p.version='$next';require('fs').writeFileSync(f, JSON.stringify(p,null,2)+'\n')"
 
           echo "已写入: OPENCLAW_VERSION=$latest, 壳版本=$next"
 
       - name: Commit, tag & push
-        if: steps.decide.outputs.changed == 'true' && github.event.inputs.dry_run != 'true'
+        if: steps.decide.outputs.changed == 'true' && steps.nextver.outputs.skip != 'true' && github.event.inputs.dry_run != 'true'
         run: |
           latest="${{ steps.upstream.outputs.latest }}"
           next="${{ steps.nextver.outputs.next }}"
@@ -210,7 +225,7 @@ jobs:
           echo "✅ 已推送 v$next，release.yml 将自动构建并发布。"
 
       - name: Dry-run summary
-        if: steps.decide.outputs.changed == 'true' && github.event.inputs.dry_run == 'true'
+        if: steps.decide.outputs.changed == 'true' && steps.nextver.outputs.skip != 'true' && github.event.inputs.dry_run == 'true'
         run: |
           echo "🔍 DRY RUN — 不改动。"
           echo "若执行将：OPENCLAW_VERSION ${{ steps.current.outputs.pinned }} → ${{ steps.upstream.outputs.latest }}，发布 v${{ steps.nextver.outputs.next }}"

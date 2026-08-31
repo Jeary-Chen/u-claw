@@ -6,9 +6,9 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const EXPECTED_VERSION = '2026.7.1-2';
-const EXPECTED_SHA256 = '9f4d780a173664ad12da1ffb4cbd110c68497bfd3c23b8a5ae28602ed24c9db8';
-const BUNDLE = 'node_modules/openclaw/dist/replace-file-DfwQ8_Mi.js';
+const EXPECTED_VERSION = '2026.8.1';
+const EXPECTED_SHA256 = '08818a161252713e1225013788d7960cd3f87ee8f6423e23d2885aceee9c4b8f';
+const BUNDLE = 'node_modules/openclaw/dist/replace-file-f6TD5O4c.js';
 const OLD_RETRYABLE = `function isRetryableRenameError(error) {
 \treturn error.code === "EBUSY";
 }`;
@@ -21,40 +21,21 @@ function isRetryableRenameError(error, dest) {
 }`;
 const OLD_RETRY_CALL = 'isRetryableRenameError(error) && attempt < params.maxRetries';
 const NEW_RETRY_CALL = 'isRetryableRenameError(error, params.dest) && attempt < params.maxRetries';
-const OLD_ASYNC = `\t\tconst result = await renameWithRetry({
+const ASYNC_PREFIX = `\t\tconst result = await renameWithRetry({
 \t\t\tfsModule,
 \t\t\tsrc: tempPath,
-\t\t\tdest: filePath,
-\t\t\tmaxRetries: options.renameMaxRetries ?? 0,
-\t\t\tbaseDelayMs: options.renameRetryBaseDelayMs ?? 50,
-\t\t\tcopyFallbackOnPermissionError: options.copyFallbackOnPermissionError === true
-\t\t});`;
-const NEW_ASYNC = `\t\tconst pairingStateFile = /[\\\\/]devices[\\\\/](?:paired|pending)\\.json$/i.test(filePath);
-\t\tconst result = await renameWithRetry({
+\t\t\tdest: filePath,`;
+const SYNC_PREFIX = `\t\tconst result = renameWithRetrySync({
 \t\t\tfsModule,
 \t\t\tsrc: tempPath,
-\t\t\tdest: filePath,
-\t\t\tmaxRetries: pairingStateFile ? Math.max(options.renameMaxRetries ?? 0, 4) : options.renameMaxRetries ?? 0,
-\t\t\tbaseDelayMs: pairingStateFile ? 25 : options.renameRetryBaseDelayMs ?? 50,
-\t\t\tcopyFallbackOnPermissionError: pairingStateFile ? false : options.copyFallbackOnPermissionError === true
-\t\t});`;
-const OLD_SYNC = `\t\tconst result = renameWithRetrySync({
-\t\t\tfsModule,
-\t\t\tsrc: tempPath,
-\t\t\tdest: filePath,
-\t\t\tmaxRetries: options.renameMaxRetries ?? 0,
-\t\t\tbaseDelayMs: options.renameRetryBaseDelayMs ?? 50,
-\t\t\tcopyFallbackOnPermissionError: options.copyFallbackOnPermissionError === true
-\t\t});`;
-const NEW_SYNC = `\t\tconst pairingStateFile = /[\\\\/]devices[\\\\/](?:paired|pending)\\.json$/i.test(filePath);
-\t\tconst result = renameWithRetrySync({
-\t\t\tfsModule,
-\t\t\tsrc: tempPath,
-\t\t\tdest: filePath,
-\t\t\tmaxRetries: pairingStateFile ? Math.max(options.renameMaxRetries ?? 0, 4) : options.renameMaxRetries ?? 0,
-\t\t\tbaseDelayMs: pairingStateFile ? 25 : options.renameRetryBaseDelayMs ?? 50,
-\t\t\tcopyFallbackOnPermissionError: pairingStateFile ? false : options.copyFallbackOnPermissionError === true
-\t\t});`;
+\t\t\tdest: filePath,`;
+const PAIRING_STATE_FILE = '\t\tconst pairingStateFile = /[\\\\/]devices[\\\\/](?:paired|pending)\\.json$/i.test(filePath);\n';
+const OLD_MAX_RETRIES = 'maxRetries: options.renameMaxRetries ?? 0,';
+const NEW_MAX_RETRIES = 'maxRetries: pairingStateFile ? Math.max(options.renameMaxRetries ?? 0, 4) : options.renameMaxRetries ?? 0,';
+const OLD_BASE_DELAY = 'baseDelayMs: options.renameRetryBaseDelayMs ?? 50,';
+const NEW_BASE_DELAY = 'baseDelayMs: pairingStateFile ? 25 : options.renameRetryBaseDelayMs ?? 50,';
+const OLD_COPY_FALLBACK = 'copyFallbackOnPermissionError: options.copyFallbackOnPermissionError === true,';
+const NEW_COPY_FALLBACK = 'copyFallbackOnPermissionError: pairingStateFile ? false : options.copyFallbackOnPermissionError === true,';
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -65,6 +46,26 @@ function replaceExactlyOnce(source, oldText, newText, label) {
     throw new Error(`Refuse pairing retry patch: expected exactly one ${label} call site`);
   }
   return source.replace(oldText, newText);
+}
+
+function prependPairingStateFile(source, prefix, label) {
+  return replaceExactlyOnce(source, prefix, PAIRING_STATE_FILE + prefix, label);
+}
+
+function replaceInCallBlock(source, prefix, oldText, newText, label) {
+  const start = source.indexOf(prefix);
+  if (start === -1 || source.indexOf(prefix, start + prefix.length) !== -1) {
+    throw new Error(`Refuse pairing retry patch: expected exactly one ${label} call block`);
+  }
+  const end = source.indexOf('\n\t\t});', start);
+  if (end === -1) {
+    throw new Error(`Refuse pairing retry patch: cannot find end of ${label} call block`);
+  }
+  const block = source.slice(start, end);
+  if (block.split(oldText).length - 1 !== 1) {
+    throw new Error(`Refuse pairing retry patch: expected exactly one ${label} option`);
+  }
+  return source.slice(0, start) + block.replace(oldText, newText) + source.slice(end);
 }
 
 const coreDir = resolve(process.argv[2] || process.cwd());
@@ -82,9 +83,21 @@ if (patched.split(OLD_RETRY_CALL).length - 1 !== 2) {
   throw new Error('Refuse pairing retry patch: expected exactly two retry call sites');
 }
 patched = patched.replaceAll(OLD_RETRY_CALL, NEW_RETRY_CALL);
-patched = replaceExactlyOnce(patched, OLD_ASYNC, NEW_ASYNC, 'async');
-patched = replaceExactlyOnce(patched, OLD_SYNC, NEW_SYNC, 'sync');
-if (patched.includes(OLD_RETRYABLE) || patched.includes(OLD_RETRY_CALL) || patched.includes(OLD_ASYNC) || patched.includes(OLD_SYNC) || patched.split('const pairingStateFile').length - 1 !== 2) {
+patched = prependPairingStateFile(patched, ASYNC_PREFIX, 'async pairing-state prefix');
+patched = prependPairingStateFile(patched, SYNC_PREFIX, 'sync pairing-state prefix');
+for (const [prefix, label] of [[ASYNC_PREFIX, 'async'], [SYNC_PREFIX, 'sync']]) {
+  patched = replaceInCallBlock(patched, prefix, OLD_MAX_RETRIES, NEW_MAX_RETRIES, `${label} maxRetries`);
+  patched = replaceInCallBlock(patched, prefix, OLD_BASE_DELAY, NEW_BASE_DELAY, `${label} baseDelayMs`);
+  patched = replaceInCallBlock(patched, prefix, OLD_COPY_FALLBACK, NEW_COPY_FALLBACK, `${label} copy fallback`);
+}
+if (
+  patched.includes(OLD_RETRYABLE) ||
+  patched.includes(OLD_RETRY_CALL) ||
+  patched.split('const pairingStateFile').length - 1 !== 2 ||
+  patched.split(NEW_MAX_RETRIES).length - 1 !== 2 ||
+  patched.split(NEW_BASE_DELAY).length - 1 !== 2 ||
+  patched.split(NEW_COPY_FALLBACK).length - 1 !== 2
+) {
   throw new Error('Refuse pairing retry patch: post-condition failed');
 }
 writeFileSync(bundlePath, patched, 'utf8');

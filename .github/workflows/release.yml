@@ -93,8 +93,8 @@ jobs:
           # so apply a fail-closed vendor patch that adds a browser-only local root.
           node "$GITHUB_WORKSPACE/portable/lib/patch-managed-browser-root.mjs" "$core_dir"
           node "$GITHUB_WORKSPACE/portable/lib/patch-device-pairing-retry.mjs" "$core_dir"
-          node --check "$core_dir/node_modules/openclaw/dist/chrome-DDq_K3xu.js"
-          node --check "$core_dir/node_modules/openclaw/dist/replace-file-DfwQ8_Mi.js"
+          node --check "$core_dir/node_modules/openclaw/dist/chrome-DTMbh5xz.js"
+          node --check "$core_dir/node_modules/openclaw/dist/replace-file-f6TD5O4c.js"
           # 回到 repo 根：后续步骤（test suite / normalize / zip）都用相对路径，
           # 这个 step 把 cwd 留在 core/ 的话，"cd dist" 会报 No such file or directory
           # （v2.1.19 首跑实录：engines gate 和测试都过了，zip 步骤挂在 cd dist）。
