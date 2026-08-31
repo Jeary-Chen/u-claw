@@ -25,6 +25,8 @@
 
 ## 三步开始
 
+> 📺 图文教程：[docs/快速上手.md](docs/快速上手.md)（含真实界面截图，5 步从插 U 盘到开始对话）
+
 1. 从 [Releases](https://github.com/dongsheng123132/u-claw/releases) 下载 Windows 便携版，解压到 U 盘后双击 `Windows-Start.bat`。
 2. 或克隆仓库，在 `portable/` 运行 `bash setup.sh`，下载 Node.js 与 OpenClaw。
 3. 首次启动在本地配置模型 Key；配置只保存在 U 盘的 `data/.openclaw/openclaw.json`。
@@ -34,6 +36,8 @@
 | 随身 AI 工作空间 | 换电脑时带走配置、记忆、会话与设备授权；仅可重建的浏览器缓存留在主机。 |
 | 本地优先 | 不绑定设备、不打指纹、不上传本地配置。 |
 | 多种使用方式 | 便携 U 盘、在线一键安装、可启动 Linux U 盘各自独立。 |
+
+*平台支持：Windows ✅（免部署完整包）· macOS ✅ · 可启动 Linux U盘 ✅ —— 详见下方平台支持表。*
 
 > [!TIP]
 > ### 👑 同作者新品：U-King · AI 装机管家
@@ -277,7 +281,7 @@ bash setup.sh
 支持同时配置多个 provider！打开 `Config.html` → 在 Providers 区域点击「添加」，逐个填入各模型的 API Key 和地址（如 DeepSeek、Kimi、通义等）→ 保存后，在聊天界面左上角下拉菜单随时切换。配置持久保存在 U 盘上。
 
 **Q: U 盘安装后无法创建文件 / 写入失败？**
-两种可能：① U 盘侧面有物理写保护开关，拨到解锁位置；② U 盘格式不兼容，建议格式化为 **exFAT**（Mac/Windows/Linux 三端均支持读写）。
+两种可能：① U 盘侧面有物理写保护开关，拨到解锁位置；② U 盘不是 **NTFS** 格式——本产品要求 NTFS（exFAT/FAT32 会导致启动缓慢、写入失败甚至启动失败）。备份数据后重新格式化为 NTFS 即可。
 
 **Q: 从 Ubuntu 向 U 盘复制时符号链接丢失？**
 `node_modules/.bin/` 下有大量符号链接，FAT32/exFAT 在直接 `cp -R` 时会跳过。用 `rsync -aL` 可将符号链接展开为真实文件：
@@ -576,7 +580,7 @@ bash setup.sh
 Multiple providers are supported! Open `Config.html` → click "Add" in the Providers section → enter API Key and endpoint for each model (DeepSeek, Kimi, Qwen, etc.) → save. Switch between models via the dropdown in the chat interface. Config is saved persistently on the USB drive.
 
 **Q: USB drive shows "cannot create file" / write errors?**
-Two possibilities: ① The USB drive has a physical write-protect switch on the side — slide it to unlock; ② Format incompatibility — format the drive as **exFAT** (supported on Mac/Windows/Linux).
+Two possibilities: ① The USB drive has a physical write-protect switch on the side — slide it to unlock; ② The drive is not **NTFS** — this product requires NTFS (exFAT/FAT32 causes slow startup, write failures, or boot failure). Back up your data and reformat as NTFS.
 
 **Q: Symlinks missing when copying from Ubuntu to USB?**
 `node_modules/.bin/` contains many symlinks that get skipped during direct `cp -R`. Use `rsync -aL` to expand symlinks into real files:
