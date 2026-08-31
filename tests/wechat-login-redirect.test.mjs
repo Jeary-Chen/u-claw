@@ -91,21 +91,25 @@ test('WeChat start API really returns 503 while downgraded', async () => {
   const { tmpdir } = await import('node:os');
   const serverJs = join(repoRoot, 'portable', 'config-server', 'server.js');
   const stateDir = mkdtempSync(join(tmpdir(), 'uclaw-wechat-downgrade-'));
+  // 隔离端口段：真机可能插着U盘/开着实例占 18788-18798（2026-08-31 实测假红根因——
+  // 打到 E 盘旧版实例拿 200）。用独立段避开一切产品实例，杜绝环境污染。
+  const TEST_PORT = 18901;
   const child = spawn(process.execPath, [serverJs], {
-    env: { ...process.env, OPENCLAW_STATE_DIR: stateDir, OPENCLAW_HOME: stateDir },
+    env: { ...process.env, OPENCLAW_STATE_DIR: stateDir, OPENCLAW_HOME: stateDir, UCLAW_CONFIG_PORT: String(TEST_PORT) },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stdout = '';
   child.stdout.on('data', (d) => { stdout += d; });
   try {
-    // 从启动日志解析实际监听端口（18788 被占时 server 会 fallback 到 18789+）
+    // 端口是环境变量指定写死的，不靠解析 stdout（stdout 顺序不可靠，且 Windows 下
+    // busy 端口也会打横幅——2026-08-31 实测）。只等服务器就绪。
     let port = null;
     for (let i = 0; i < 60 && port === null; i++) {
-      const m = stdout.match(/http:\/\/127\.0\.0\.1:(\d+)/);
-      if (m) port = Number(m[1]);
+      const m = stdout.match(new RegExp(`http:\\/\\/127\\.0\\.0\\.1:${TEST_PORT}`));
+      if (m) port = TEST_PORT;
       else await new Promise((r) => setTimeout(r, 150));
     }
-    assert.ok(port, `config-server did not report a port; stdout:\n${stdout}`);
+    assert.ok(port, `config-server did not report port ${TEST_PORT}; stdout:\\n${stdout}`);
 
     let res;
     for (let i = 0; i < 40; i++) {

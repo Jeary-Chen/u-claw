@@ -213,10 +213,10 @@ bash Mac-Start.command   # Mac 测试
 |------|------|------|
 | Mac Apple Silicon (M1-M4) | ✅ | 便携版 |
 | Mac Intel (x64) | ✅ | 便携版 |
-| Windows x64 | 🚧 开发中 | 便携版 |
+| Windows x64 | ✅ | 便携版（含免部署完整包） |
 | Linux x64（可启动 U 盘） | ✅ | [`bootable/`](bootable/) 目录 |
 
-欢迎 PR！特别需要：Windows 脚本完善、教程翻译。
+欢迎 PR！特别需要：教程翻译、文档完善。
 
 ### 🦞 寻找技术伙伴
 
@@ -484,12 +484,12 @@ bash Mac-Start.command   # Test on Mac
 
 | Platform | Status | Notes |
 |----------|--------|-------|
-| Mac Apple Silicon (M1-M4) | ✅ | Portable + Desktop |
-| Mac Intel (x64) | ✅ | Portable + Desktop |
-| Windows x64 | 🚧 In progress | Portable + Desktop |
+| Mac Apple Silicon (M1-M4) | ✅ | Portable |
+| Mac Intel (x64) | ✅ | Portable |
+| Windows x64 | ✅ | Portable (full offline bundle) |
 | Linux x64 (Bootable USB) | ✅ | [`bootable/`](bootable/) directory |
 
-PRs welcome! Especially: Windows scripts, documentation.
+PRs welcome! Especially: documentation, tutorials.
 
 ### 🔧 Professional Services / 专业服务
 

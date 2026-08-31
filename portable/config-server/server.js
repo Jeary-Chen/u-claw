@@ -729,20 +729,27 @@ function listenWithFallback(port) {
     process.exit(1);
   });
   server.listen(port, '127.0.0.1', () => {
-    console.log(`\n🦞 U-Claw Config Center`);
-    console.log(`   http://127.0.0.1:${port}`);
-    console.log(`\n   Config file: ${CONFIG_PATH}\n`);
-    // Persist the live port so Config.html / launchers can discover it after restarts.
-    try {
-      fs.mkdirSync(path.dirname(RUNTIME_PATH), { recursive: true });
-      const existing = fs.existsSync(RUNTIME_PATH) ? JSON.parse(fs.readFileSync(RUNTIME_PATH, 'utf8')) : {};
-      existing.configServerPort = port;
-      existing.configServerUpdatedAt = new Date().toISOString();
-      fs.writeFileSync(RUNTIME_PATH, JSON.stringify(existing, null, 2));
-    } catch (err) {
-      console.warn(`   Warning: could not write ${RUNTIME_PATH}: ${err.message}`);
-    }
+    // Windows 双绑怪癖：本进程 bind 已被占的端口时，成功回调会先打出来，
+    // EADDRINUSE 错误随后才异步到达（实测 2026-08-31，两把U盘同插时复现）。
+    // 横幅/runtime.json 只在「错误没有到达」之后才算数。
+    setTimeout(() => {
+      if (server.listening !== true) return;
+      console.log(`\n🦞 U-Claw Config Center`);
+      console.log(`   http://127.0.0.1:${port}`);
+      console.log(`\n   Config file: ${CONFIG_PATH}\n`);
+      // Persist the live port so Config.html / launchers can discover it after restarts.
+      try {
+        fs.mkdirSync(path.dirname(RUNTIME_PATH), { recursive: true });
+        const existing = fs.existsSync(RUNTIME_PATH) ? JSON.parse(fs.readFileSync(RUNTIME_PATH, 'utf8')) : {};
+        existing.configServerPort = port;
+        existing.configServerUpdatedAt = new Date().toISOString();
+        fs.writeFileSync(RUNTIME_PATH, JSON.stringify(existing, null, 2));
+      } catch (err) {
+        console.warn(`   Warning: could not write ${RUNTIME_PATH}: ${err.message}`);
+      }
+    }, 250);
   });
 }
 
-listenWithFallback(PORT_RANGE_START);
+// 测试/多实例隔离口：允许调用方指定起始端口（如 tests 传 18901，避开 18788-18798 产品段）。
+listenWithFallback(Number(process.env.UCLAW_CONFIG_PORT) || PORT_RANGE_START);
