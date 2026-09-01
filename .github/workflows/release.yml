@@ -108,7 +108,9 @@ jobs:
           # subset of bundled deps it actually needs at runtime.
 
           # 5) Install QQ plugin
-          npm install @sliverp/qqbot@latest \
+          # 注意：上一步已 cd "$GITHUB_WORKSPACE"，这里必须 --prefix 指回 core_dir，
+          # 否则插件会装进仓库根的 node_modules 而不是产物（v2.1.27/28 实测丢包根因）。
+          npm install --prefix "$core_dir" @sliverp/qqbot@latest \
             --registry="$mirror_npm" \
             --ignore-scripts \
             --no-audit \
@@ -119,7 +121,7 @@ jobs:
           # 用户首次选 DeepSeek 保存后会触发 gateway 现场自装：NTFS 上会卡 capability consent
           # （需交互确认才 ready），exFAT 上直接因无法建 symlink 而永不 ready。
           # 预装进 app/core 后 gateway 直接识别（无需用户 consent，信任官方源），双平台开箱即用。
-          npm install "@openclaw/deepseek-provider@2026.8.1" \
+          npm install --prefix "$core_dir" "@openclaw/deepseek-provider@2026.8.1" \
             --registry="$mirror_npm" \
             --ignore-scripts \
             --no-audit \
@@ -137,7 +139,7 @@ jobs:
             "@openclaw-china/wecom" \
             "@openclaw-china/qqbot"; do
             echo "Installing China channel plugin: $cn_pkg"
-            npm install "${cn_pkg}@latest" \
+            npm install --prefix "$core_dir" "${cn_pkg}@latest" \
               --registry="$mirror_npm" \
               --ignore-scripts \
               --no-audit \
