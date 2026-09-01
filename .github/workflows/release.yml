@@ -114,6 +114,17 @@ jobs:
             --no-audit \
             --no-fund || true
 
+          # 5a) Pre-install official deepseek provider plugin (2026.8.1+)
+          # OpenClaw 2026.8.1 起把「provider id=deepseek」映射到官方 @openclaw/deepseek-provider 插件，
+          # 用户首次选 DeepSeek 保存后会触发 gateway 现场自装：NTFS 上会卡 capability consent
+          # （需交互确认才 ready），exFAT 上直接因无法建 symlink 而永不 ready。
+          # 预装进 app/core 后 gateway 直接识别（无需用户 consent，信任官方源），双平台开箱即用。
+          npm install "@openclaw/deepseek-provider@2026.8.1" \
+            --registry="$mirror_npm" \
+            --ignore-scripts \
+            --no-audit \
+            --no-fund || echo "WARN: deepseek-provider pre-install failed (便携版仍可手选其他 provider)"
+
           # 5b) Pre-install China channel plugins (钉钉/飞书中国版/企业微信)
           # 借鉴自 BytePioneer-AI/openclaw-china 生态：这些是非官方主仓库插件，
           # 官方镜像默认不带 → U-Claw 离线预置 = 最大差异化价值。国内客户开箱即用，
