@@ -93,7 +93,12 @@ test('mergeConfig: 受管字段整体替换，不做深合并（避免"删不掉
 
   const merged = mergeConfig(existing, incoming);
 
-  assert.deepEqual(merged.gateway, { mode: 'local' }, 'gateway.extraKnob 应随整体替换一起消失');
+  // gateway 仍按整体替换：incoming 带了就以它为准（extraKnob 消失），
+  // 但保存侧会兜底补全缺失的 auth 子对象（2026-09-01 起，防 runtime token 漂移）。
+  assert.deepEqual(merged.gateway, {
+    mode: 'local',
+    auth: { mode: 'token', token: 'uclaw' },
+  }, 'gateway 整体替换后 auth 缺失应被兜底补全');
 });
 
 test('mergeConfig: 旧版废弃键 agent（单数）始终被清除', () => {
@@ -101,10 +106,18 @@ test('mergeConfig: 旧版废弃键 agent（单数）始终被清除', () => {
   assert.ok(!('agent' in merged));
 });
 
-test('mergeConfig: 非对象输入不崩，按空对象处理', () => {
-  assert.deepEqual(mergeConfig(null, { models: {} }), { models: {} });
-  assert.deepEqual(mergeConfig({ plugins: { a: 1 } }, null), { plugins: { a: 1 } });
-  assert.deepEqual(mergeConfig(undefined, undefined), {});
+test('mergeConfig: 非对象输入不崩，按空对象处理（gateway 兜底仍生效）', () => {
+  assert.deepEqual(mergeConfig(null, { models: {} }), {
+    models: {},
+    gateway: { mode: 'local', auth: { mode: 'token', token: 'uclaw' } },
+  });
+  assert.deepEqual(mergeConfig({ plugins: { a: 1 } }, null), {
+    plugins: { a: 1 },
+    gateway: { mode: 'local', auth: { mode: 'token', token: 'uclaw' } },
+  });
+  assert.deepEqual(mergeConfig(undefined, undefined), {
+    gateway: { mode: 'local', auth: { mode: 'token', token: 'uclaw' } },
+  });
 });
 
 // ── readConfigSafe：磁盘上损坏 JSON / 文件不存在 ─────────────────────────

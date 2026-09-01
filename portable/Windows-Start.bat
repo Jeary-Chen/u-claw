@@ -296,6 +296,7 @@ REM Clean stale gateway lock from a previous crash / USB yank so OpenClaw won't
 REM refuse to start with "gateway already running (pid XXXX)". Only locks whose
 REM owning process is gone (or corrupt) are removed; a live instance is left alone.
 "%NODE_BIN%" "%UCLAW_DIR%lib\clean-stale-lock.mjs" "%OPENCLAW_CONFIG_PATH%"
+"%NODE_BIN%" "%UCLAW_DIR%lib\official-provider-guard.mjs" "%OPENCLAW_CONFIG_PATH%" 2>nul
 
 cd /d "%CORE_DIR%"
 set "OPENCLAW_MJS=%CORE_DIR%\node_modules\openclaw\openclaw.mjs"

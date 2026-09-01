@@ -13,7 +13,7 @@
 //     这些字段以"本次请求"为准整体替换（不做深合并），从而天然支持删除
 //     （比如用户在 models.providers 里删掉一个 provider，合并不会把它救回来）。
 //     如果本次请求没带某个受管字段，视为该字段本次被清空——这跟改造前"整体覆盖"对这几个
-//     字段的行为一致，不引入新差异，只是不再殃及无关字段。
+//     字段的行为一致，不引入新差异，只是不再殃及无关字段；gateway 见下方单独保底。
 //   - 其余所有顶层字段（plugins、以及任何未来出现的未知字段）：UI 从不碰，就算请求体里出现
 //     也无视，一律原样保留磁盘上的版本。
 //
@@ -26,6 +26,11 @@
 // 可复用：issue #61「多模型管理」是同一处代码的下一个症状，接下来的多 provider 编辑也建立在
 // 这个"合并 + 原子写"地基上，不要在 server.js 里再叠一次一次性补丁。
 //
+// gateway 例外保底：仍信任任何不带 gateway 的保存请求，并保留磁盘上的 gateway；若它已被
+// 旧版页面、上游写盘或第三方工具删掉，则补回本地 token 配置。否则 OpenClaw 会在每次重启时
+// 生成新的 runtime token，Dashboard 固定使用 #token=uclaw 会永远得到 401。
+// models / agents / env / commands / meta 仍严格遵循下方的受管字段整体替换/删除语义。
+//
 // 零依赖：只用 node:fs / node:path / node:crypto。
 
 import fs from 'node:fs';
@@ -35,6 +40,11 @@ import crypto from 'node:crypto';
 export const MANAGED_TOP_LEVEL_KEYS = Object.freeze([
   'gateway', 'commands', 'meta', 'models', 'agents', 'env',
 ]);
+
+const DEFAULT_GATEWAY = Object.freeze({
+  mode: 'local',
+  auth: Object.freeze({ mode: 'token', token: 'uclaw' }),
+});
 
 function isPlainObject(v) {
   return !!v && typeof v === 'object' && !Array.isArray(v);
@@ -71,8 +81,24 @@ export function mergeConfig(existingConfig, incomingConfig) {
   for (const key of MANAGED_TOP_LEVEL_KEYS) {
     if (Object.prototype.hasOwnProperty.call(incoming, key)) {
       merged[key] = incoming[key];
-    } else {
+    } else if (key !== 'gateway') {
       delete merged[key];
+    }
+  }
+
+  if (!isPlainObject(merged.gateway)) {
+    merged.gateway = {
+      mode: DEFAULT_GATEWAY.mode,
+      auth: { ...DEFAULT_GATEWAY.auth },
+    };
+  } else {
+    if (!isPlainObject(merged.gateway.auth)) {
+      merged.gateway.auth = { ...DEFAULT_GATEWAY.auth };
+    } else if (!merged.gateway.auth.mode || merged.gateway.auth.mode === 'token') {
+      // token 模式下 token 缺失/null/空串都补回——只判空串会漏掉
+      // {mode:'token'}（auth 在、token 键没了）这种残缺形态（opus 审码 2.1）。
+      const t = merged.gateway.auth.token;
+      if (typeof t !== 'string' || t === '') merged.gateway.auth.token = DEFAULT_GATEWAY.auth.token;
     }
   }
 

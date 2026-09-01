@@ -265,6 +265,7 @@ echo ""
 # 清理上次崩溃 / 拔盘残留的 gateway 锁，避免 OpenClaw 报 "gateway already running"。
 # 只删持有进程已不在的死锁；活动实例的锁不动。静默、非阻塞。
 "$NODE_BIN" "$UCLAW_DIR/lib/clean-stale-lock.mjs" "$CONFIG_FILE" || true
+"$NODE_BIN" "$UCLAW_DIR/lib/official-provider-guard.mjs" "$CONFIG_FILE" 2>/dev/null || true
 
 cd "$CORE_DIR"
 OPENCLAW_MJS="$CORE_DIR/node_modules/openclaw/openclaw.mjs"
