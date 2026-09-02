@@ -15,10 +15,10 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (...p) => readFileSync(join(repoRoot, ...p), 'utf8');
 
-test('strip-provider-env.mjs 清单与 ClawX buildGatewayRuntimeEnv 的 27 个变量一致', async () => {
+test('strip-provider-env.mjs 清单与 2026.8.1 官方 catalog 的 42 个变量一致', async () => {
   const src = read('portable/lib/strip-provider-env.mjs');
   const names = [...src.matchAll(/^  '([A-Z][A-Z0-9_]+)',$/gm)].map((m) => m[1]);
-  assert.equal(names.length, 27, `清单应是 27 个字面量，实际 ${names.length}: ${names.join(',')}`);
+  assert.equal(names.length, 42, `清单应是 42 个字面量，实际 ${names.length}: ${names.join(',')}`);
   assert.ok(names.includes('DASHSCOPE_API_KEY'), '必须含 DASHSCOPE_API_KEY（本次事故主角）');
   assert.ok(names.includes('DEEPSEEK_API_KEY') && names.includes('GROQ_API_KEY'));
 });
@@ -57,4 +57,5 @@ test('Mac-Start.command 在起 gateway 前消费 UCLAW_STRIP_ENV 并 unset', () 
   assert.ok(stripPos > 0, 'Mac-Start.command 必须调用 strip-provider-env.mjs');
   assert.ok(gwPos > stripPos, '剥离必须发生在 gateway run 之前');
   assert.match(sh, /unset "\$_v"/, '逐个 unset');
+  assert.match(sh, /\$\{_UCLAW_STRIP_ENV\/\/,\/ \}/, '逗号清单必须先转换为空格，才能逐个 unset');
 });

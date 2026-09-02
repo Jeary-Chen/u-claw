@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { mergeConfig } from '../portable/lib/merge-config.mjs';
 import { guardOfficialProviders } from '../portable/lib/official-provider-guard.mjs';
 
@@ -10,6 +11,7 @@ const catalogPath = new URL(
   '../portable/app/core/node_modules/openclaw/scripts/lib/official-external-provider-catalog.json',
   import.meta.url,
 );
+const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
 function withTempDir(fn) {
   const dir = mkdtempSync(join(tmpdir(), 'uclaw-config-integrity-test-'));
@@ -105,7 +107,7 @@ test('official provider guard: 非官方名不改（gateway 完整时无任何�
   });
 });
 
-test('official provider guard: 与 <id>-api 同名共存时跳过并记动作（不静默）', () => {
+test('official provider guard: 与 <id>-api 同名共存时官方条目进隔离仓（T1 必须解除）', () => {
   withTempDir((dir) => {
     const configPath = join(dir, 'openclaw.json');
     writeFileSync(configPath, JSON.stringify({
@@ -117,10 +119,15 @@ test('official provider guard: 与 <id>-api 同名共存时跳过并记动作（
       },
     }));
     const actions = guardOfficialProviders(configPath, catalogPath, NO_CORE);
-    assert.ok(actions.some((a) => a.startsWith('skip deepseek')), String(actions));
+    assert.ok(actions.some((a) => a.includes('deepseek')), String(actions));
     const saved = JSON.parse(readFileSync(configPath, 'utf8'));
-    assert.ok(saved.models.providers.deepseek, '共存时不覆盖用户手建条目');
-    assert.ok(saved.models.providers['deepseek-api']);
+    // R2 修复（sol 审码 F3）：共存 skip 会把致命 T1 留在配置里——官方条目必须离场
+    assert.equal(saved.models.providers.deepseek, undefined, '官方 deepseek 条目必须被隔离移除');
+    assert.ok(saved.models.providers['deepseek-api'], '用户手建条目保留');
+    // 隔离仓 sidecar 落盘且内容可恢复
+    const sidecar = JSON.parse(readFileSync(join(dir, 'uclaw-provider-guard-quarantine.json'), 'utf8'));
+    assert.ok(sidecar.providers.deepseek, '官方条目进 sidecar.providers');
+    assert.equal(sidecar.providers.deepseek.baseUrl, 'https://api.deepseek.com');
   });
 });
 
@@ -171,4 +178,16 @@ test('official provider guard: catalog 与快照都不可用时 fail-open，不�
       guardOfficialProviders(configPath, join(dir, 'missing-catalog.json'), { snapshot: [] }));
     assert.equal(readFileSync(configPath, 'utf8'), raw);
   });
+});
+
+test('config pages restore saved baseUrl and primary model after selecting a card', () => {
+  const pages = [
+    readFileSync(join(repoRoot, 'portable', 'config-server', 'public', 'index.html'), 'utf8'),
+    readFileSync(join(repoRoot, 'portable', 'Config.html'), 'utf8'),
+  ];
+  for (const page of pages) {
+    assert.match(page, /selectedBase = p\.baseUrl \|\| selectedBase/);
+    assert.match(page, /primary.*cfg\.agents|cfg\.agents.*primary/s);
+    assert.match(page, /if \(modelId\) selectedModel = modelId/);
+  }
 });

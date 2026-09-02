@@ -189,7 +189,7 @@ input:focus { border-color: #ff6b35; }
                 <p>kimi-k2.6，长上下文强</p>
                 <a class="buy-link" href="https://platform.moonshot.cn/" target="_blank">→ 获取 API Key</a>
             </div>
-            <div class="model-card" data-provider="zai" data-base="" data-model="glm-5">
+            <div class="model-card" data-provider="zai" data-base="https://open.bigmodel.cn/api/paas/v4" data-model="glm-5">
                 <span class="check">✓</span>
                 <h4>智谱 GLM <span class="tag cn">国内</span><span class="tag free">有免费</span></h4>
                 <p>glm-5（zai provider），免费额度可用</p>
@@ -422,6 +422,9 @@ input:focus { border-color: #ff6b35; }
 let selectedProvider = null;
 let selectedBase = '';
 let selectedModel = '';
+let savedProviderApiKey = null;
+let savedProviderId = null;
+const SECRET_REF_INPUT_VALUE = '（已加密保存，无需重填）';
 
 // --- Model cards ---
 document.querySelectorAll('#step1 .model-card').forEach(card => {
@@ -430,8 +433,12 @@ document.querySelectorAll('#step1 .model-card').forEach(card => {
         document.querySelectorAll('#step1 .model-card').forEach(c => c.classList.remove('selected'));
         card.classList.add('selected');
         selectedProvider = card.dataset.provider;
+        savedProviderApiKey = null;
+        savedProviderId = null;
         selectedBase = card.dataset.base;
         selectedModel = card.dataset.model;
+        const apiKeyInput = document.getElementById('apiKey');
+        if (apiKeyInput.value === SECRET_REF_INPUT_VALUE) apiKeyInput.value = '';
         document.getElementById('nextStep1').disabled = false;
     });
 });
@@ -527,28 +534,21 @@ function buildOpenClawConfig(provider, base, model, apiKey) {
     // Base config that OpenClaw expects
     const baseConfig = {
         gateway: { mode: 'local', auth: { mode: 'token', token: 'uclaw' }, remote: { token: 'uclaw' } },
-        commands: { native: 'auto', nativeSkills: 'auto', restart: true, ownerDisplay: 'raw' },
-        meta: { lastTouchedVersion: '2026.3.13', lastTouchedAt: new Date().toISOString() }
+        commands: { native: 'auto', nativeSkills: 'auto', restart: true }
     };
 
-    // 智谱 GLM uses the built-in zai provider
-    if (provider === 'zai') {
-        return {
-            ...baseConfig,
-            env: { ZAI_API_KEY: apiKey },
-            agents: { defaults: { model: { primary: 'zai/' + model } } }
-        };
-    }
-
-    // All other providers use models.providers (OpenAI-compatible)
-    const providerName = provider || 'myProvider';
+    // zai 与其他 provider 同路径：id 用 zai-api（不命中 OpenClaw 官方外部插件目录，
+    // 避免 exFAT 触发自动安装插件导致 gateway 拒启）。zai 目录卡 baseUrl 可为空，
+    // 此时回退智谱官方地址。
+    const providerName = provider === 'zai' ? 'zai-api' : (provider || 'myProvider');
+    const providerBase = base || (provider === 'zai' ? 'https://open.bigmodel.cn/api/paas/v4' : '');
     return {
         ...baseConfig,
         models: {
             mode: 'merge',
             providers: {
                 [providerName]: {
-                    baseUrl: base,
+                    baseUrl: providerBase,
                     apiKey: apiKey,
                     api: 'openai-completions',
                     models: [buildModelDefinition(provider, model)]
@@ -561,7 +561,13 @@ function buildOpenClawConfig(provider, base, model, apiKey) {
 
 // --- Save config ---
 async function saveConfig() {
-    let apiKey = document.getElementById('apiKey').value.trim();
+    const inputApiKey = document.getElementById('apiKey').value.trim();
+    let apiKey = inputApiKey;
+    if ((inputApiKey === SECRET_REF_INPUT_VALUE || !inputApiKey) &&
+        savedProviderId === selectedProvider && isSecretRefValue(savedProviderApiKey)) apiKey = savedProviderApiKey;
+    if (inputApiKey === SECRET_REF_INPUT_VALUE && !isSecretRefValue(savedProviderApiKey)) {
+        showToast('请重新输入 API Key', true); return;
+    }
     // 本地模型（Ollama/LM Studio）不需要真实 Key，OpenClaw 配置结构里仍要有 apiKey 字段
     if (selectedLocal) {
         if (!apiKey) apiKey = 'local';
@@ -625,6 +631,15 @@ function showToast(msg, isError) {
 }
 
 // --- Load existing config ---
+function isSecretRefValue(value) {
+    return value && typeof value === 'object' && value.source === 'store';
+}
+
+function fillApiKeyFromSaved(value) {
+    const input = document.getElementById('apiKey');
+    input.value = isSecretRefValue(value) ? SECRET_REF_INPUT_VALUE : (value || '');
+}
+
 async function loadConfig() {
     try {
         const res = await fetch('/api/config');
@@ -634,7 +649,9 @@ async function loadConfig() {
         if (cfg.env && cfg.env.ZAI_API_KEY) {
             const card = document.querySelector('.model-card[data-provider="zai"]');
             if (card) card.click();
-            document.getElementById('apiKey').value = cfg.env.ZAI_API_KEY;
+            savedProviderId = 'zai';
+            savedProviderApiKey = cfg.env.ZAI_API_KEY;
+            fillApiKeyFromSaved(cfg.env.ZAI_API_KEY);
             return;
         }
 
@@ -643,16 +660,24 @@ async function loadConfig() {
             const providerName = Object.keys(cfg.models.providers)[0];
             if (providerName) {
                 const p = cfg.models.providers[providerName];
+                const catalogProviderId = providerName.endsWith('-api') ? providerName.slice(0, -4) : providerName;
                 // 同一 provider 可能有多张卡（如不同端点/模型），按 base+model 三元组精确匹配，
                 // 避免只按 provider 匹配时回填选错卡。
-                const modelId = p.models && p.models[0] ? p.models[0].id : '';
+                const primary = cfg.agents?.defaults?.model?.primary;
+                const modelId = typeof primary === 'string' && primary.includes('/') ? primary.slice(primary.indexOf('/') + 1) : '';
                 const card = Array.from(document.querySelectorAll('.model-card')).find(candidate =>
-                    candidate.dataset.provider === providerName &&
+                    candidate.dataset.provider === catalogProviderId &&
                     candidate.dataset.base === (p.baseUrl || '') &&
                     candidate.dataset.model === modelId
-                ) || document.querySelector(`.model-card[data-provider="${providerName}"]`);
+                ) || document.querySelector(`.model-card[data-provider="${catalogProviderId}"]`);
                 if (card) card.click();
-                if (p.apiKey) document.getElementById('apiKey').value = p.apiKey;
+                // Selecting a catalog card resets its defaults; restore the
+                // endpoint/model persisted by the user instead.
+                selectedBase = p.baseUrl || selectedBase;
+                savedProviderId = catalogProviderId;
+                savedProviderApiKey = p.apiKey;
+                if (p.apiKey) fillApiKeyFromSaved(p.apiKey);
+                if (modelId) selectedModel = modelId;
             }
         }
     } catch(e) {}
@@ -690,6 +715,8 @@ async function discoverLocalModels() {
                     selectedBase = p.base;
                     selectedModel = modelId;
                     selectedLocal = true;
+                    const apiKeyInput = document.getElementById('apiKey');
+                    if (apiKeyInput.value === SECRET_REF_INPUT_VALUE) apiKeyInput.value = '';
                     document.getElementById('nextStep1').disabled = false;
                 });
                 grid.appendChild(card);

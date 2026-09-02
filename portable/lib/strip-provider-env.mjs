@@ -18,13 +18,17 @@
 // 从上游运行时动态推导会静默漂移（ClawX 用 check-provider-env 对账，本仓靠
 // tests/strip-provider-env.test.mjs 锁住清单与行为）。
 
-const OPENCLAW_EXTERNAL_PROVIDER_ENV_VARS = [
+export const OFFICIAL_PROVIDER_ENV_VARS = Object.freeze([
   'AI_GATEWAY_API_KEY',
   'ARCEEAI_API_KEY',
+  'BASETEN_API_KEY',
+  'BYTEPLUS_API_KEY',
   'CEREBRAS_API_KEY',
   'CHUTES_API_KEY',
   'CHUTES_OAUTH_TOKEN',
   'CLOUDFLARE_AI_GATEWAY_API_KEY',
+  'COMFY_API_KEY',
+  'COMFY_CLOUD_API_KEY',
   'DASHSCOPE_API_KEY',
   'DEEPINFRA_API_KEY',
   'DEEPSEEK_API_KEY',
@@ -35,22 +39,33 @@ const OPENCLAW_EXTERNAL_PROVIDER_ENV_VARS = [
   'KIMI_API_KEY',
   'KIMICODE_API_KEY',
   'LONGCAT_API_KEY',
+  'MISTRAL_API_KEY',
   'MODEL_API_KEY',
   'MODELSTUDIO_API_KEY',
   'MOONSHOT_API_KEY',
+  'NOVITA_API_KEY',
+  'OPENCODE_API_KEY',
+  'OPENCODE_ZEN_API_KEY',
   'QIANFAN_API_KEY',
   'QWEN_API_KEY',
+  'QWEN_TOKEN_PLAN_API_KEY',
   'STEPFUN_API_KEY',
+  'SYNTHETIC_API_KEY',
   'TOKENHUB_API_KEY',
   'TOKENPLAN_API_KEY',
   'VENICE_API_KEY',
+  'VOLCANO_ENGINE_API_KEY',
+  'VOYAGE_API_KEY',
+  'VYDRA_API_KEY',
+  'XIAOMI_API_KEY',
+  'XIAOMI_TOKEN_PLAN_API_KEY',
   'ZAI_API_KEY',
   'Z_AI_API_KEY',
-];
+]);
 
 /** 供测试注入；返回被剥掉的变量名列表（只报名字，不报值——值是第三方凭证）。 */
 export function strippedVarNames(env = process.env) {
-  return OPENCLAW_EXTERNAL_PROVIDER_ENV_VARS.filter((name) => {
+  return OFFICIAL_PROVIDER_ENV_VARS.filter((name) => {
     const v = env[name];
     return typeof v === 'string' && v.trim() !== '';
   });

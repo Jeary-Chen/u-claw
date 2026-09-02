@@ -121,7 +121,7 @@
         }
       ],
       "desc": "glm-5（zai provider），免费额度可用",
-      "base": "",
+      "base": "https://open.bigmodel.cn/api/paas/v4",
       "models": [
         "glm-5",
         "glm-4.7",

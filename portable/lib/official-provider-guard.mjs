@@ -1,90 +1,84 @@
 #!/usr/bin/env node
-// official-provider-guard.mjs — 避开 OpenClaw 官方 provider 插件的自动安装路径 + 启动侧
-// gateway 自愈。
-//
-// OpenClaw 2026.8.1 在 models.providers 的 key 命中官方 catalog 时，会尝试安装相应
-// 官方插件。exFAT 无法创建插件验证需要的 node_modules/openclaw 链接，gateway 因而永不
-// ready；NTFS 上也可能等待交互式 capability consent。守卫分两步：
-//   1) 若该 provider 的官方插件已预装在 app/core（v2.1.28+ 发版包，npm install --prefix），
-//      保留用户原名——gateway 直接识别本地插件，用户还能吃到原生插件体验；
-//   2) 插件缺失（存量老 U 盘 / 手动 npm 装法）时，把 provider key 改为不命中 catalog 的
-//      <id>-api，并同步默认模型引用，走通用 OpenAI 兼容通道，启动不再被插件安装卡死。
-//      仅当条目自带 baseUrl+api（Config.html 写出的形态）才改名——裸条目改名后模型也调不通，
-//      改了只是把「起不来」换成「连不上」，没有价值。
-//
-// gateway 自愈（2026-09-01，与 merge-config.mjs 同一契约）：启动时配置若缺 gateway 段
-// 或 auth 子对象（旧版页面/上游/第三方工具写盘都可能造成），就地补回本地 token 配置，
-// 否则 OpenClaw 每次重启生成随机 runtime token，固定 #token=uclaw 的 Dashboard 永远 401。
-//
-// 官方 id 来源 = 运行时 catalog ∪ 2026.8.1 快照（取并集：catalog 部分解析成功时快照
-// 兜住剩余；catalog 完全不可用时退化为纯快照）。两者都空 → fail-open，绝不妨碍启动。
-//
-// 零依赖、静默失败、退出码恒为 0（缺少配置路径的用法错误除外）。
-
+// Keep OpenClaw's external-provider auto-installer off portable media. The
+// on-disk wrapper is deliberately fail-open; the transform is reused by
+// config-server so one config save produces one gateway hot-reload.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { OFFICIAL_PROVIDER_ENV_VARS } from './strip-provider-env.mjs';
 
-// [officialId, npmSpec] — 2026.8.1 catalog 快照（official-external-provider-catalog.json，
-// entries[].openclaw.providers[].id + entries[].openclaw.install.npmSpec），2026-09-01 提取。
-const OFFICIAL_PROVIDER_SNAPSHOT = Object.freeze([
+// 2026.8.1 official-external-provider-catalog.json snapshot. Keep this
+// literal: startup must not depend on OpenClaw being installed or readable.
+export const OFFICIAL_PROVIDER_SNAPSHOT = Object.freeze([
   ['amazon-bedrock', '@openclaw/amazon-bedrock-provider'],
   ['amazon-bedrock-mantle', '@openclaw/amazon-bedrock-mantle-provider'],
   ['anthropic-vertex', '@openclaw/anthropic-vertex-provider'],
   ['arcee', '@openclaw/arcee-provider'],
+  ['baseten', '@openclaw/baseten-provider'],
+  ['byteplus', '@openclaw/byteplus-provider'],
   ['cerebras', '@openclaw/cerebras-provider'],
   ['chutes', '@openclaw/chutes-provider'],
-  ['cloudflare-ai-gateway', '@openclaw/cloudflare-ai-gateway-provider'],
-  ['codex', '@openclaw/codex'],
   ['cohere', '@openclaw/cohere-provider'],
+  ['cloudflare-ai-gateway', '@openclaw/cloudflare-ai-gateway-provider'],
+  ['comfy', '@openclaw/comfy-provider'],
   ['deepinfra', '@openclaw/deepinfra-provider'],
   ['deepseek', '@openclaw/deepseek-provider'],
   ['featherless', '@openclaw/featherless-provider'],
-  ['fireworks', '@openclaw/fireworks-provider'],
   ['gmi', '@openclaw/gmi-provider'],
+  ['longcat', '@openclaw/longcat-provider'],
+  ['meta', '@openclaw/meta-provider'],
+  ['mistral', '@openclaw/mistral-provider'],
+  ['novita', '@openclaw/novita-provider'],
+  ['opencode', '@openclaw/opencode-provider'],
   ['groq', '@openclaw/groq-provider'],
   ['kilocode', '@openclaw/kilocode-provider'],
   ['kimi', '@openclaw/kimi-provider'],
-  ['longcat', '@openclaw/longcat-provider'],
-  ['meta', '@openclaw/meta-provider'],
-  ['moonshot', '@openclaw/moonshot-provider'],
+  ['opencode-go', '@openclaw/opencode-go-provider'],
   ['pixverse', '@openclaw/pixverse-provider'],
   ['qianfan', '@openclaw/qianfan-provider'],
   ['qwen', '@openclaw/qwen-provider'],
-  ['qwen-oauth', '@openclaw/qwen-provider'],
-  ['stepfun', '@openclaw/stepfun-provider'],
-  ['stepfun-plan', '@openclaw/stepfun-provider'],
+  ['qwen-token-plan', '@openclaw/qwen-provider'],
+  ['bailian-token-plan', '@openclaw/qwen-provider'],
+  ['fireworks', '@openclaw/fireworks-provider'],
+  ['moonshot', '@openclaw/moonshot-provider'],
   ['tencent-tokenhub', '@openclaw/tencent-provider'],
   ['tencent-tokenplan', '@openclaw/tencent-provider'],
   ['venice', '@openclaw/venice-provider'],
   ['vercel-ai-gateway', '@openclaw/vercel-ai-gateway-provider'],
+  ['vydra', '@openclaw/vydra-provider'],
+  ['xiaomi', '@openclaw/xiaomi-provider'],
+  ['xiaomi-token-plan', '@openclaw/xiaomi-provider'],
   ['zai', '@openclaw/zai-provider'],
+  ['synthetic', '@openclaw/synthetic-provider'],
+  ['voyage', '@openclaw/voyage-provider'],
+  ['volcengine', '@openclaw/volcengine-provider'],
+  ['volcengine-plan', '@openclaw/volcengine-provider'],
+  ['stepfun', '@openclaw/stepfun-provider'],
+  ['stepfun-plan', '@openclaw/stepfun-provider'],
 ]);
 
 const CORE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'app', 'core');
-const DEFAULT_CATALOG_PATH = path.join(
-  CORE_DIR, 'node_modules', 'openclaw', 'scripts', 'lib',
-  'official-external-provider-catalog.json',
-);
+const DEFAULT_CATALOG_PATH = path.join(CORE_DIR, 'node_modules', 'openclaw', 'scripts', 'lib', 'official-external-provider-catalog.json');
 
 function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-// catalog → Map(officialId → npmSpec)；npmSpec 缺失用 entry name 兜底，再缺视为未安装。
+function has(object, key) {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
 function readCatalogProviders(catalogPath) {
   try {
     const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
     const providers = new Map();
     for (const entry of catalog.entries || []) {
       if (entry?.kind && entry.kind !== 'provider') continue;
-      const oc = entry?.openclaw || {};
-      const npmSpec = oc?.install?.npmSpec || entry?.name || '';
-      for (const provider of oc?.providers || []) {
+      const openclaw = entry?.openclaw || {};
+      const npmSpec = openclaw?.install?.npmSpec || entry?.name || '';
+      for (const provider of openclaw?.providers || []) {
         if (provider?.kind && provider.kind !== 'provider') continue;
-        if (typeof provider?.id === 'string' && provider.id && !providers.has(provider.id)) {
-          providers.set(provider.id, npmSpec);
-        }
+        if (typeof provider?.id === 'string' && provider.id && !providers.has(provider.id)) providers.set(provider.id, npmSpec);
       }
     }
     return providers;
@@ -93,10 +87,17 @@ function readCatalogProviders(catalogPath) {
   }
 }
 
+function officialProviders(options = {}) {
+  const snapshot = options.snapshot === undefined ? OFFICIAL_PROVIDER_SNAPSHOT : options.snapshot;
+  const providers = new Map((Array.isArray(snapshot) ? snapshot : []).map(([id, spec]) => [id, spec || '']));
+  if (options.catalogPath !== false) {
+    for (const [id, spec] of readCatalogProviders(options.catalogPath || DEFAULT_CATALOG_PATH)) providers.set(id, spec);
+  }
+  return providers;
+}
+
 function timestampForBackup(date = new Date()) {
-  return [date.getHours(), date.getMinutes(), date.getSeconds()]
-    .map((value) => String(value).padStart(2, '0'))
-    .join('');
+  return [date.getHours(), date.getMinutes(), date.getSeconds()].map((value) => String(value).padStart(2, '0')).join('');
 }
 
 function writeAtomic(configPath, content) {
@@ -106,8 +107,7 @@ function writeAtomic(configPath, content) {
     fs.writeFileSync(tempPath, content);
     fs.renameSync(tempPath, configPath);
   } catch (err) {
-    // 失败时清掉残留的半截临时文件（2026-09-01 独立测试抓到的残留问题）。
-    try { fs.unlinkSync(tempPath); } catch { /* 本就不存在或删不掉，随它 */ }
+    try { fs.unlinkSync(tempPath); } catch { /* best effort */ }
     throw err;
   }
 }
@@ -120,120 +120,358 @@ function appendLog(configPath, message) {
 
 function pluginInstalled(npmSpec, coreDir) {
   if (!npmSpec) return false;
-  // npmSpec 可能带版本（@scope/pkg@1.2.3）；包目录只取 @scope/pkg 部分。
-  // 注意：npm 对 @scope/pkg 形态，版本分隔符是「第二个 @」；无 scope 包是「第一个 @」。
   const isScoped = npmSpec.startsWith('@');
   const at = npmSpec.lastIndexOf('@');
-  const pkgDir = at > (isScoped ? 0 : -1) && at > 0 ? npmSpec.slice(0, at) : npmSpec;
-  if (!pkgDir) return false;
+  const packageDir = at > (isScoped ? 0 : -1) && at > 0 ? npmSpec.slice(0, at) : npmSpec;
+  if (!packageDir) return false;
   try {
-    return fs.existsSync(path.join(coreDir, 'node_modules', pkgDir, 'package.json'));
+    return fs.existsSync(path.join(coreDir, 'node_modules', packageDir, 'package.json'));
   } catch {
     return false;
   }
 }
 
-/**
- * gateway 自愈（与 merge-config.mjs 的保底契约一致，就地修改并返回是否发生变化）。
- * 缺失/非对象 → 补默认；缺 auth → 补 auth；token 模式下 token 缺失/空 → 补 uclaw。
- */
 export function ensureGatewayOnConfig(config) {
-  const DEFAULT_GATEWAY = { mode: 'local', auth: { mode: 'token', token: 'uclaw' } };
+  const defaultGateway = { mode: 'local', auth: { mode: 'token', token: 'uclaw' } };
   if (!isPlainObject(config.gateway)) {
-    config.gateway = { mode: DEFAULT_GATEWAY.mode, auth: { ...DEFAULT_GATEWAY.auth } };
+    config.gateway = defaultGateway;
     return true;
   }
-  let changed = false;
   if (!isPlainObject(config.gateway.auth)) {
-    config.gateway.auth = { ...DEFAULT_GATEWAY.auth };
-    changed = true;
-  } else {
-    const auth = config.gateway.auth;
-    const tokenMode = !auth.mode || auth.mode === 'token';
-    if (tokenMode && (typeof auth.token !== 'string' || auth.token === '')) {
-      auth.token = DEFAULT_GATEWAY.auth.token;
-      changed = true;
+    config.gateway.auth = { ...defaultGateway.auth };
+    return true;
+  }
+  const auth = config.gateway.auth;
+  if ((!auth.mode || auth.mode === 'token') && (typeof auth.token !== 'string' || auth.token === '')) {
+    auth.token = defaultGateway.auth.token;
+    return true;
+  }
+  return false;
+}
+
+function ensureProviderObject(config) {
+  if (!isPlainObject(config.models)) config.models = {};
+  if (!isPlainObject(config.models.providers)) config.models.providers = {};
+  return config.models.providers;
+}
+
+function replaceModelRef(value, oldId, newId) {
+  return typeof value === 'string' && value.startsWith(`${oldId}/`)
+    ? `${newId}/${value.slice(oldId.length + 1)}` : value;
+}
+
+function replaceModelKeys(models, oldId, newId, actions) {
+  if (!isPlainObject(models)) return false;
+  let changed = false;
+  for (const key of Object.keys(models)) {
+    const replacement = replaceModelRef(key, oldId, newId);
+    if (replacement === key) continue;
+    // Never overwrite a separately configured model alias.  Keeping the old
+    // key is safer than silently discarding the user's definition.
+    if (has(models, replacement)) {
+      actions?.push(`model key conflict kept: ${key}`);
+      continue;
     }
+    models[replacement] = models[key];
+    delete models[key];
+    changed = true;
   }
   return changed;
 }
 
-/**
- * @param {string} configPath openclaw.json 绝对路径
- * @param {string} [catalogPath] 运行时 catalog 路径（默认指向 app/core 内那份）
- * @param {{coreDir?: string, snapshot?: ReadonlyArray<[string, string]>}} [options]
- *        coreDir 供测试注入；snapshot 传 [] 可禁用快照兜底（测试 fail-open 用）。
- * @returns {string[]} 动作记录（改名/跳过/gateway 自愈），无动作返回 []
- */
+/** Rewrite all supported config references from an official provider ID. */
+export function replaceAllModelRefs(config, oldId, newId, actions) {
+  let changed = false;
+  const defaults = config.agents?.defaults;
+  const defaultModel = defaults?.model;
+  if (isPlainObject(defaultModel)) {
+    for (const key of ['primary']) {
+      const replacement = replaceModelRef(defaultModel[key], oldId, newId);
+      if (replacement !== defaultModel[key]) { defaultModel[key] = replacement; changed = true; }
+    }
+    if (Array.isArray(defaultModel.fallbacks)) defaultModel.fallbacks = defaultModel.fallbacks.map((value) => {
+      const replacement = replaceModelRef(value, oldId, newId);
+      if (replacement !== value) changed = true;
+      return replacement;
+    });
+  }
+  if (replaceModelKeys(defaults?.models, oldId, newId, actions)) changed = true;
+  const entries = config.agents?.entries;
+  if (isPlainObject(entries)) for (const entry of Object.values(entries)) {
+    if (!isPlainObject(entry)) continue;
+    if (typeof entry.model === 'string') {
+      const replacement = replaceModelRef(entry.model, oldId, newId);
+      if (replacement !== entry.model) { entry.model = replacement; changed = true; }
+    } else if (isPlainObject(entry.model)) {
+      const replacement = replaceModelRef(entry.model.primary, oldId, newId);
+      if (replacement !== entry.model.primary) { entry.model.primary = replacement; changed = true; }
+      if (Array.isArray(entry.model.fallbacks)) entry.model.fallbacks = entry.model.fallbacks.map((value) => {
+        const replacementValue = replaceModelRef(value, oldId, newId);
+        if (replacementValue !== value) changed = true;
+        return replacementValue;
+      });
+    }
+    if (Array.isArray(entry.fallbacks)) entry.fallbacks = entry.fallbacks.map((value) => {
+      const replacement = replaceModelRef(value, oldId, newId);
+      if (replacement !== value) changed = true;
+      return replacement;
+    });
+    if (replaceModelKeys(entry.models, oldId, newId, actions)) changed = true;
+  }
+  return changed;
+}
+
+function zaiProvider(apiKey) {
+  return {
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    api: 'openai-completions',
+    apiKey,
+    models: [{ id: 'glm-5.3-flash', name: 'GLM-5.3 Flash', reasoning: true, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 204800, maxTokens: 16384 }],
+  };
+}
+
+function readQuarantine(quarantinePath) {
+  if (!quarantinePath) return { quarantine: null, recovered: false };
+  try {
+    const current = JSON.parse(fs.readFileSync(quarantinePath, 'utf8'));
+    return { quarantine: isPlainObject(current) ? current : {}, recovered: false };
+  } catch (err) {
+    // A broken sidecar is rebuilt when possible, but it is not a trustworthy
+    // transaction destination for this run: retain source credentials.
+    return err?.code === 'ENOENT'
+      ? { quarantine: {}, recovered: false }
+      : { quarantine: {}, recovered: true };
+  }
+}
+
+function writeQuarantine(quarantinePath, additions) {
+  if (!quarantinePath || (!Object.keys(additions.env).length && !Object.keys(additions.providers).length)) return { safeToRemove: true, wrote: false };
+  try {
+    const { quarantine, recovered } = readQuarantine(quarantinePath);
+    if (!isPlainObject(quarantine.env)) quarantine.env = {};
+    if (!isPlainObject(quarantine.providers)) quarantine.providers = {};
+    Object.assign(quarantine.env, additions.env);
+    Object.assign(quarantine.providers, additions.providers);
+    quarantine.quarantinedAt = new Date().toISOString();
+    writeAtomic(quarantinePath, JSON.stringify(quarantine, null, 2));
+    return { safeToRemove: !recovered, wrote: true };
+  } catch (err) {
+    try { appendLog(quarantinePath, `quarantine write failed: ${err?.message || 'unknown'}`); } catch { /* diagnostic only */ }
+    return { safeToRemove: false, wrote: false };
+  }
+}
+
+function legacyQuarantine(config, additions) {
+  if (!isPlainObject(config.meta) || !has(config.meta, 'uclawQuarantinedEnv')) return null;
+  if (isPlainObject(config.meta.uclawQuarantinedEnv)) Object.assign(additions.env, config.meta.uclawQuarantinedEnv);
+  return config.meta;
+}
+
+function addZaiProvider(config, value, actions) {
+  const providers = ensureProviderObject(config);
+  if (!has(providers, 'zai-api')) {
+    providers['zai-api'] = zaiProvider(value);
+    actions.push('created zai-api provider from zai env');
+  }
+  if (replaceAllModelRefs(config, 'zai', 'zai-api', actions)) actions.push('model refs zai/ -> zai-api/');
+}
+
+function collectOfficialEnv(config, additions) {
+  const sources = [];
+  if (isPlainObject(config.env)) {
+    sources.push(config.env);
+    if (isPlainObject(config.env.vars)) sources.push(config.env.vars);
+  }
+  let zaiValue;
+  let foundZai = false;
+  for (const source of sources) {
+    for (const name of OFFICIAL_PROVIDER_ENV_VARS) {
+      if (!has(source, name)) continue;
+      const value = source[name];
+      if (name === 'ZAI_API_KEY' || name === 'Z_AI_API_KEY') {
+        if (!foundZai) zaiValue = value;
+        foundZai = true;
+        continue;
+      }
+      additions.env[name] = value;
+    }
+  }
+  const removals = [];
+  for (const source of sources) for (const name of OFFICIAL_PROVIDER_ENV_VARS) {
+    if (has(source, name)) removals.push({ source, name });
+  }
+  return { removals, zaiValue, foundZai };
+}
+
+function applyOfficialEnv(plan, config, actions) {
+  for (const { source, name } of plan.removals) {
+    delete source[name];
+    if (name !== 'ZAI_API_KEY' && name !== 'Z_AI_API_KEY') actions.push(`quarantined official env ${name}`);
+  }
+  if (plan.foundZai) {
+    addZaiProvider(config, plan.zaiValue, actions);
+    actions.push('zai env -> zai-api provider');
+  }
+  return plan.removals.length > 0;
+}
+
+function dotenvValue(rawValue) {
+  let value = rawValue.trim();
+  if ((value.startsWith('"') || value.startsWith("'"))) {
+    const quote = value[0];
+    const close = value.indexOf(quote, 1);
+    if (close > 0 && /^\s*(?:#.*)?$/.test(value.slice(close + 1))) return value.slice(1, close).trim();
+  }
+  return value.replace(/\s+#.*$/, '').trim();
+}
+
+function collectStateEnv(stateDir, additions) {
+  if (!stateDir) return false;
+  const envPath = path.join(stateDir, '.env');
+  let original;
+  try {
+    if (!fs.existsSync(envPath)) return false;
+    original = fs.readFileSync(envPath, 'utf8').replace(/^\uFEFF/, '');
+  } catch {
+    return false;
+  }
+  const parsed = [];
+  for (const line of original.split(/\r?\n/)) {
+    if (/^\s*(?:#.*)?$/.test(line)) { parsed.push({ line }); continue; }
+    const match = line.match(/^(\s*(?:export\s+)?)([A-Za-z_][A-Za-z0-9_]*)(\s*=\s*)(.*)$/);
+    if (!match) return false;
+    parsed.push({ line, name: match[2], value: dotenvValue(match[4]) });
+  }
+  const names = new Set(OFFICIAL_PROVIDER_ENV_VARS);
+  const removed = parsed.filter((item) => item.name && names.has(item.name));
+  if (!removed.length) return null;
+  const nonZai = removed.filter((item) => item.name !== 'ZAI_API_KEY' && item.name !== 'Z_AI_API_KEY');
+  let zaiValue;
+  for (const item of removed) {
+    if (item.name === 'ZAI_API_KEY' || item.name === 'Z_AI_API_KEY') {
+      if (zaiValue === undefined) zaiValue = item.value;
+      continue;
+    }
+    additions.env[item.name] = item.value;
+  }
+  return { envPath, original, parsed, names, removed, nonZai, zaiValue };
+}
+
+function applyStateEnv(plan, config, actions) {
+  try {
+    // Back up whenever *any* official line is removed, including ZAI-only.
+    fs.copyFileSync(plan.envPath, `${plan.envPath}.provider-guard-bak-${timestampForBackup()}`);
+    writeAtomic(plan.envPath, plan.parsed.filter((item) => !item.name || !plan.names.has(item.name)).map((item) => item.line).join('\n'));
+  } catch (err) {
+    try { appendLog(path.join(path.dirname(plan.envPath), 'openclaw.json'), `.env guard failed: ${err?.message || 'unknown'}`); } catch { /* diagnostic only */ }
+    return false;
+  }
+  for (const item of plan.nonZai) actions.push(`quarantined official .env ${item.name}`);
+  if (plan.zaiValue !== undefined) {
+    addZaiProvider(config, plan.zaiValue, actions);
+    actions.push('zai .env -> zai-api provider; re-save in Config to encrypt');
+  }
+  return true;
+}
+
+/** Transform config and, when requested, its explicit sidecar/.env transaction. */
+export function guardOfficialProvidersInMemory(config, options = {}) {
+  const result = { changed: false, actions: [], config };
+  try {
+    if (!isPlainObject(config)) return result;
+    const official = officialProviders(options);
+    // If neither the shipped snapshot nor a runtime catalog is available, the
+    // guard has no authoritative T1 source. Preserve the old fail-open contract
+    // and leave the file entirely untouched.
+    if (!official.size) return result;
+    const additions = { env: {}, providers: {} };
+    const legacyMeta = legacyQuarantine(config, additions);
+    const providers = isPlainObject(config.models?.providers) ? config.models.providers : null;
+    const coreDir = options.coreDir || CORE_DIR;
+    const conflictRemovals = [];
+    if (providers) {
+      for (const [id, npmSpec] of official) {
+        if (!has(providers, id)) continue;
+        if (pluginInstalled(npmSpec, coreDir)) continue;
+        const target = `${id}-api`;
+        if (has(providers, target)) {
+          additions.providers[id] = providers[id];
+          if (options.quarantinePath) {
+            conflictRemovals.push({ id, target });
+          } else {
+            delete additions.providers[id];
+            result.actions.push(`conflict kept: pass quarantinePath to remove (${id})`);
+          }
+          continue;
+        }
+        const entry = providers[id];
+        const renamable = isPlainObject(entry) && typeof entry.baseUrl === 'string' && entry.baseUrl && typeof entry.api === 'string' && entry.api;
+        if (!renamable) {
+          result.actions.push(`skip ${id}: missing baseUrl/api`);
+          continue;
+        }
+        providers[target] = entry;
+        delete providers[id];
+        result.changed = true;
+        result.actions.push(`renamed ${id}→${target}`);
+        if (replaceAllModelRefs(config, id, target, result.actions)) result.actions.push(`model refs ${id}/ -> ${target}/`);
+      }
+    }
+    const envPlan = collectOfficialEnv(config, additions);
+    const statePlan = collectStateEnv(options.stateDir, additions);
+
+    if (options.quarantinePath) {
+      const sidecar = writeQuarantine(options.quarantinePath, additions);
+      if (sidecar.safeToRemove) {
+        for (const { id, target } of conflictRemovals) {
+          delete providers[id];
+          result.changed = true;
+          result.actions.push(`quarantined official provider ${id} (conflict)`);
+          if (replaceAllModelRefs(config, id, target, result.actions)) result.actions.push(`model refs ${id}/ -> ${target}/`);
+        }
+        if (legacyMeta) {
+          delete legacyMeta.uclawQuarantinedEnv;
+          result.changed = true;
+        }
+        if (applyOfficialEnv(envPlan, config, result.actions)) result.changed = true;
+        if (statePlan && applyStateEnv(statePlan, config, result.actions)) result.changed = true;
+      } else if (conflictRemovals.length || legacyMeta || envPlan.removals.length || statePlan) {
+        result.actions.push('quarantine unavailable, kept official entries');
+      }
+    } else {
+      // Without a sidecar, never delete a conflicting provider or legacy
+      // quarantine data.  Config env removal remains T2 security-first.
+      if (legacyMeta) result.actions.push('legacy quarantine kept: pass quarantinePath to remove');
+      if (applyOfficialEnv(envPlan, config, result.actions)) result.changed = true;
+      // A ZAI .env value has a safe in-config destination; non-ZAI lines need
+      // a sidecar and are retained until one is supplied.
+      if (statePlan?.zaiValue !== undefined) {
+        const zaiOnlyPlan = { ...statePlan, names: new Set(['ZAI_API_KEY', 'Z_AI_API_KEY']), removed: statePlan.removed.filter((item) => item.name === 'ZAI_API_KEY' || item.name === 'Z_AI_API_KEY'), nonZai: [] };
+        if (applyStateEnv(zaiOnlyPlan, config, result.actions)) result.changed = true;
+      }
+    }
+    if (ensureGatewayOnConfig(config)) {
+      result.changed = true;
+      result.actions.push('gateway healed');
+    }
+  } catch {
+    return { changed: false, actions: [], config };
+  }
+  return result;
+}
+
+/** Fail-open disk wrapper used by launchers. */
 export function guardOfficialProviders(configPath, catalogPath = DEFAULT_CATALOG_PATH, options = {}) {
   try {
-    const snapshot = options.snapshot !== undefined ? options.snapshot : OFFICIAL_PROVIDER_SNAPSHOT;
-    const catalogProviders = readCatalogProviders(catalogPath);
-    // 并集：catalog 实时覆盖同名快照项，快照兜住 catalog 缺失/残缺的部分。
-    const official = new Map(
-      (Array.isArray(snapshot) ? snapshot : []).map(([id, spec]) => [id, spec || '']),
-    );
-    for (const [id, spec] of catalogProviders) official.set(id, spec);
-    if (!official.size) return [];
-
-    const raw = fs.readFileSync(configPath, 'utf8');
-    const config = JSON.parse(raw);
-    if (!isPlainObject(config) || !isPlainObject(config.models) || !isPlainObject(config.models.providers)) {
-      return [];
-    }
-
-    const actions = [];
-    const coreDir = options.coreDir || CORE_DIR;
-
-    for (const [id, npmSpec] of official) {
-      if (!Object.prototype.hasOwnProperty.call(config.models.providers, id)) continue;
-      // 官方插件已预装在本地 → gateway 能直接识别，保留原名不动（原生插件体验）。
-      if (pluginInstalled(npmSpec, coreDir)) continue;
-      const target = `${id}-api`;
-      if (Object.prototype.hasOwnProperty.call(config.models.providers, target)) {
-        // 同名共存（deepseek + deepseek-api）：改名会把用户手建的条目覆盖掉，跳过并记日志。
-        actions.push(`skip ${id}: ${target} 已存在`);
-        continue;
-      }
-      const entry = config.models.providers[id];
-      const renamable = isPlainObject(entry)
-        && typeof entry.baseUrl === 'string' && entry.baseUrl
-        && typeof entry.api === 'string' && entry.api;
-      if (!renamable) {
-        // 裸条目（无 baseUrl/api）改名后模型也调不通，不动它、留线索。
-        actions.push(`skip ${id}: 缺 baseUrl/api，无法安全改名`);
-        continue;
-      }
-
-      config.models.providers[target] = config.models.providers[id];
-      delete config.models.providers[id];
-      actions.push(`renamed ${id}→${target}`);
-
-      const primary = config.agents?.defaults?.model?.primary;
-      if (typeof primary === 'string' && primary.startsWith(`${id}/`)) {
-        config.agents.defaults.model.primary = `${target}/${primary.slice(id.length + 1)}`;
-        actions.push(`primary ${id}/→${target}/`);
-      }
-    }
-
-    const gatewayHealed = ensureGatewayOnConfig(config);
-    if (gatewayHealed) actions.push('gateway 自愈（补回缺失的 gateway/auth 段）');
-
-    if (!actions.length) return [];
-
-    try {
-      fs.copyFileSync(configPath, `${configPath}.provider-guard-bak-${timestampForBackup()}`);
-    } catch {
-      // 备份失败不阻断：配置原子写成功更重要。
-    }
-
-    writeAtomic(configPath, JSON.stringify(config, null, 2));
-    try {
-      appendLog(configPath, actions.join('; '));
-    } catch {
-      // 日志仅供诊断，不能影响启动。
-    }
-    return actions;
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const stateDir = options.stateDir || path.dirname(configPath);
+    const quarantinePath = options.quarantinePath || path.join(stateDir, 'uclaw-provider-guard-quarantine.json');
+    const result = guardOfficialProvidersInMemory(config, { ...options, catalogPath, stateDir, quarantinePath });
+    if (!result.changed) return result.actions;
+    try { fs.copyFileSync(configPath, `${configPath}.provider-guard-bak-${timestampForBackup()}`); } catch { /* best effort */ }
+    writeAtomic(configPath, JSON.stringify(result.config, null, 2));
+    try { appendLog(configPath, result.actions.join('; ')); } catch { /* diagnostic only */ }
+    return result.actions;
   } catch {
     return [];
   }
@@ -246,5 +484,4 @@ export function main(argv) {
 }
 
 const isMain = path.basename(process.argv[1] || '') === 'official-provider-guard.mjs';
-
 if (isMain) process.exitCode = main(process.argv);

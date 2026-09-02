@@ -49,6 +49,10 @@ function isMaskedKey(value) {
   return typeof value === 'string' && /^[A-Za-z0-9_-]{3,12}\.\.\.[A-Za-z0-9_-]{3,8}$/.test(value);
 }
 
+function isSecretRefPlaceholder(value) {
+  return value === '（已加密保存，无需重填）';
+}
+
 function isSecretRef(value) {
   return value && typeof value === 'object' && value.source === 'store' && typeof value.id === 'string';
 }
@@ -92,6 +96,9 @@ function secretName(prefix, id) {
 class SecretSaveError extends Error {}
 
 async function storeSecretRef(name, value) {
+  if (isSecretRefPlaceholder(value)) {
+    throw new SecretSaveError('请重新输入 API Key');
+  }
   if (isMaskedKey(value)) {
     throw new SecretSaveError('检测到已脱敏的密钥串，请重新输入完整 API Key');
   }
@@ -785,18 +792,29 @@ const server = http.createServer((req, res) => {
       (async () => {
         try {
           const incoming = JSON.parse(body);
-          try {
-            await moveIncomingSecretsToStore(incoming);
+              try {
+                await moveIncomingSecretsToStore(incoming);
           } catch (err) {
             if (err instanceof SecretSaveError) {
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ ok: false, error: err.message }));
               return;
             }
-            throw err;
+                throw err;
+              }
+              const { readConfigSafe, mergeConfig, writeConfigAtomic } = await import('../lib/merge-config.mjs');
+          const merged = mergeConfig(readConfigSafe(CONFIG_PATH), incoming);
+          try {
+            const { guardOfficialProvidersInMemory } = await import('../lib/official-provider-guard.mjs');
+            guardOfficialProvidersInMemory(merged, {
+              stateDir: path.dirname(CONFIG_PATH),
+              quarantinePath: path.join(path.dirname(CONFIG_PATH), 'uclaw-provider-guard-quarantine.json'),
+            });
+          } catch (guardErr) {
+            // Provider guard is advisory: never make a user config save fail.
+            console.error('[provider-guard] save-path guard failed:', guardErr && guardErr.message);
           }
-          const { saveConfigMerged } = await import('../lib/merge-config.mjs');
-          saveConfigMerged(CONFIG_PATH, incoming);
+          writeConfigAtomic(CONFIG_PATH, merged);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: true, ...await runSecretsReload() }));
         } catch (err) {

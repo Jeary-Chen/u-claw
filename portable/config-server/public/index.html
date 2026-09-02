@@ -440,6 +440,9 @@ details#advancedModelsBox[open] summary { border-bottom: 1px solid #333; margin-
 let selectedProvider = null;
 let selectedBase = '';
 let selectedModel = '';
+var savedProviderApiKey = null;
+var savedProviderId = null;
+var SECRET_REF_INPUT_VALUE = '（已加密保存，无需重填）';
 let selectedLocal = false;  // 选中的是本地模型（Ollama/LM Studio）则免 Key
 
 // --- Model catalog: 渲染云端提供商卡片（每家一卡 + 卡内模型下拉） ---
@@ -518,8 +521,12 @@ function selectCloudCard(card, p) {
     card.classList.add('selected');
     var sel = card.querySelector('.card-model-select');
     selectedProvider = p.id;
+    savedProviderApiKey = null;
+    savedProviderId = null;
     selectedBase = p.base;
     selectedModel = sel ? sel.value : (p.recommended || (p.models[0] || ''));
+    var apiKeyInput = document.getElementById('apiKey');
+    if (apiKeyInput.value === SECRET_REF_INPUT_VALUE) apiKeyInput.value = '';
     selectedLocal = false;  // 点云端卡片 → 取消本地标记
     document.getElementById('nextStep1').disabled = false;
 }
@@ -697,22 +704,14 @@ function buildModelDefinition(provider, model) {
 function buildConfig(provider, base, model, apiKey) {
     var baseConfig = {
         gateway: { mode: 'local', auth: { mode: 'token', token: 'uclaw' }, remote: { token: 'uclaw' } },
-        commands: { native: 'auto', nativeSkills: 'auto', restart: true, ownerDisplay: 'raw' },
-        meta: { lastTouchedVersion: '2026.3.13', lastTouchedAt: new Date().toISOString() }
+        commands: { native: 'auto', nativeSkills: 'auto', restart: true }
     };
 
-    // 智谱 GLM uses built-in zai provider
-    if (provider === 'zai') {
-        return Object.assign({}, baseConfig, {
-            env: { ZAI_API_KEY: apiKey },
-            agents: { defaults: { model: { primary: 'zai/' + model } } }
-        });
-    }
-
-    var providerName = provider || 'myProvider';
+    var providerName = provider === 'zai' ? 'zai-api' : (provider || 'myProvider');
+    var providerBase = base || (provider === 'zai' ? 'https://open.bigmodel.cn/api/paas/v4' : '');
     var providers = {};
     providers[providerName] = {
-        baseUrl: base,
+        baseUrl: providerBase,
         apiKey: apiKey,
         api: 'openai-completions',
         models: [buildModelDefinition(provider, model)]
@@ -725,7 +724,13 @@ function buildConfig(provider, base, model, apiKey) {
 
 // --- Save model config ---
 async function saveConfig() {
-    var apiKey = document.getElementById('apiKey').value.trim();
+    var inputApiKey = document.getElementById('apiKey').value.trim();
+    var apiKey = inputApiKey;
+    if ((inputApiKey === SECRET_REF_INPUT_VALUE || !inputApiKey) &&
+        savedProviderId === selectedProvider && isSecretRefValue(savedProviderApiKey)) apiKey = savedProviderApiKey;
+    if (inputApiKey === SECRET_REF_INPUT_VALUE && !isSecretRefValue(savedProviderApiKey)) {
+        showToast('请重新输入 API Key', true); return;
+    }
     // 本地模型（Ollama/LM Studio）无需真实 Key，但 OpenClaw 配置结构仍要求 apiKey 字段。
     if (selectedLocal) { if (!apiKey) apiKey = 'local'; }
     else if (!apiKey) { showToast('请填写 API Key', true); return; }
@@ -1018,14 +1023,19 @@ async function checkGateway() {
 function fillApiKeyFromSaved(value) {
     var input = document.getElementById('apiKey');
     input.value = '';
-    if (value && typeof value === 'object') {
-        input.placeholder = '密钥已安全保存（引用）；输入新值可更换';
+    if (isSecretRefValue(value)) {
+        input.value = SECRET_REF_INPUT_VALUE;
+        input.placeholder = 'sk-...';
     } else if (typeof value === 'string' && /^[A-Za-z0-9_-]{3,12}\.\.\.[A-Za-z0-9_-]{3,8}$/.test(value)) {
         input.placeholder = '已保存的密钥已脱敏；输入新值可更换';
     } else {
         input.placeholder = 'sk-...';
         if (value) input.value = value;
     }
+}
+
+function isSecretRefValue(value) {
+    return value && typeof value === 'object' && value.source === 'store';
 }
 
 async function loadConfig() {
@@ -1036,6 +1046,8 @@ async function loadConfig() {
         if (cfg.env && cfg.env.ZAI_API_KEY) {
             var card = document.querySelector('#step1 .model-card[data-provider="zai"]');
             if (card) card.click();
+            savedProviderId = 'zai';
+            savedProviderApiKey = cfg.env.ZAI_API_KEY;
             fillApiKeyFromSaved(cfg.env.ZAI_API_KEY);
             return;
         }
@@ -1044,14 +1056,21 @@ async function loadConfig() {
             var providerName = Object.keys(cfg.models.providers)[0];
             if (providerName) {
                 var p = cfg.models.providers[providerName];
+                var catalogProviderId = providerName.endsWith('-api') ? providerName.slice(0, -4) : providerName;
                 // 同一 provider 可能有多张卡，按 base+model 三元组精确匹配，避免回填选错卡
-                var modelId = p.models && p.models[0] ? p.models[0].id : '';
+                var primary = cfg.agents && cfg.agents.defaults && cfg.agents.defaults.model && cfg.agents.defaults.model.primary;
+                var modelId = typeof primary === 'string' && primary.includes('/') ? primary.slice(primary.indexOf('/') + 1) : '';
                 var card = Array.from(document.querySelectorAll('#step1 .model-card')).find(function(candidate) {
-                    return candidate.dataset.provider === providerName &&
+                    return candidate.dataset.provider === catalogProviderId &&
                         candidate.dataset.base === (p.baseUrl || '') &&
                         candidate.dataset.model === modelId;
-                }) || document.querySelector('#step1 .model-card[data-provider="' + providerName + '"]');
+                }) || document.querySelector('#step1 .model-card[data-provider="' + catalogProviderId + '"]');
                 if (card) card.click();
+                // card.click() resets catalog defaults; restore exactly what the
+                // saved config says, including a custom endpoint/model.
+                selectedBase = p.baseUrl || selectedBase;
+                savedProviderId = catalogProviderId;
+                savedProviderApiKey = p.apiKey;
                 if (p.apiKey) fillApiKeyFromSaved(p.apiKey);
                 // 回填的模型可能与卡片默认不同，进 step2 时下拉要显示已存值
                 if (modelId) selectedModel = modelId;
@@ -1092,6 +1111,8 @@ async function discoverLocalModels() {
                     selectedBase = p.base;
                     selectedModel = modelId;
                     selectedLocal = true;
+                    var apiKeyInput = document.getElementById('apiKey');
+                    if (apiKeyInput.value === SECRET_REF_INPUT_VALUE) apiKeyInput.value = '';
                     document.getElementById('nextStep1').disabled = false;
                 });
                 grid.appendChild(card);

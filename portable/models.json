@@ -122,7 +122,7 @@
     },
     {
       "id": "zai",
-      "baseUrl": "",
+      "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
       "model": "glm-5",
       "title": "智谱 GLM",
       "tags": [

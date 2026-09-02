@@ -104,8 +104,9 @@ mkdir -p "$STATE_DIR" "$DATA_DIR/memory" "$DATA_DIR/backups" "$DATA_DIR/logs"
 # vars would also silently spend the host owner's API credits.
 _UCLAW_STRIP_ENV="$("$NODE_BIN" "$UCLAW_DIR/lib/strip-provider-env.mjs" 2>/dev/null | sed 's/^UCLAW_STRIP_ENV=//')"
 if [ -n "$_UCLAW_STRIP_ENV" ]; then
+    # strip-provider-env.mjs uses commas; bash only word-splits spaces by default.
     # shellcheck disable=SC2086
-    for _v in $_UCLAW_STRIP_ENV; do
+    for _v in ${_UCLAW_STRIP_ENV//,/ }; do
         unset "$_v" 2>/dev/null
     done
     echo -e "  ${YELLOW}Stripped host provider env vars:${NC} $_UCLAW_STRIP_ENV"
