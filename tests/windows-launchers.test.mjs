@@ -99,9 +99,43 @@ test('Windows startup only auto-opens Config Center when no model is configured 
   );
   assert.match(
     script,
-    /if "%MODEL_CONFIGURED%"=="1" \([\s\S]*\) else \([\s\S]*start "" http:\/\/127\.0\.0\.1:%CONFIG_PORT%\/[\s\S]*\)/,
+    /if "%MODEL_CONFIGURED%"=="1" \([\s\S]*\) else \([\s\S]*start "" "?http:\/\/127\.0\.0\.1:%CONFIG_PORT%\/[\s\S]*\)/,
     'Config Center should only auto-open in the "not configured" branch',
   );
+});
+
+test('Windows launcher publishes the actually-selected gateway port to runtime.json (v2.2.1)', () => {
+  // v2.2.0 bug: config-server guessed the gateway port as configServerPort + 1.
+  // That guess broke whenever 18789 was already taken and the gateway fell back
+  // to 18790+ -- the guess then pointed at whatever else was listening on 18789
+  // on the customer's machine, so saved API keys silently never reached the
+  // real gateway. The launcher must now publish its actual chosen port.
+  const script = readRepoFile('portable', 'Windows-Start.bat');
+  assert.match(
+    script,
+    /lib\\runtime-ports\.mjs" publish "%STATE_DIR%" gateway %PORT%/,
+    'Windows launcher must publish the selected gateway port via runtime-ports.mjs',
+  );
+});
+
+test('Windows gateway port scan does not read %PORT% inside a parenthesized block (v2.2.0 off-by-one)', () => {
+  // v2.2.0's ":check_port" wrote "if %PORT% gtr 18799" inside an "if %errorlevel%==0 ( ... )"
+  // block. cmd.exe substitutes %PORT% for the WHOLE block at parse time, before any
+  // statement in the block runs -- so the gtr check always saw the pre-increment value
+  // and the loop could probe one port past 18799. The fix moves the bound check to a
+  // bare (non-parenthesized) line reached via goto, so %PORT% is read fresh each time.
+  const script = readRepoFile('portable', 'Windows-Start.bat');
+  const checkPortStart = script.indexOf(':check_port');
+  const portSelectedLabel = script.indexOf('\n:port_selected', checkPortStart + 1);
+  assert.notEqual(checkPortStart, -1);
+  assert.notEqual(portSelectedLabel, -1);
+  const checkPortSection = script.slice(checkPortStart, portSelectedLabel);
+  assert.doesNotMatch(
+    checkPortSection,
+    /if %errorlevel%==0 \(/,
+    'gateway port bound check must not live inside a parenthesized IF block',
+  );
+  assert.match(checkPortSection, /if %PORT% gtr 18799 goto :no_gateway_port/);
 });
 
 test('Windows gateway fallback does not force-open Dashboard', () => {

@@ -14,8 +14,9 @@
     ⚙️ 配置 / 改模型（打开配置中心）
   让用户自己决定去聊天还是改配置——避免"配过模型就被冲进 Dashboard、想改配置还得自己翻标签"。
 
-  端口通过 URL 查询参数传入：loading.html?port=18789
-  （启动脚本打开时拼好。默认 18789。）
+  端口通过 URL 查询参数传入：loading.html?port=18789&configPort=18788
+  （启动脚本打开时拼好。默认 18789 / 18788。v2.2.1 起 configPort 不再硬编码——
+  config-server 可能因端口冲突顺延，不带这个参数时才退回 18788 兜底。）
 -->
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -143,9 +144,10 @@ body.ready .ready-wrap { display: block; }
   var params = new URLSearchParams(location.search);
   var port = parseInt(params.get('port'), 10) || 18789;
   var token = params.get('token') || 'uclaw';
+  var configPort = parseInt(params.get('configPort'), 10) || 18788;
   var base = 'http://127.0.0.1:' + port;
   var dashboard = base + '/#token=' + encodeURIComponent(token);
-  var configCenter = 'http://127.0.0.1:18788/';
+  var configCenter = 'http://127.0.0.1:' + configPort + '/';
 
   document.getElementById('manual').href = configCenter;
   document.getElementById('goDash').href = dashboard;

@@ -6,8 +6,11 @@ const { execFile } = require('child_process');
 const { deflateSync } = require('zlib');
 const crypto = require('crypto');
 
-const PORT_RANGE_START = 18788;
-const PORT_RANGE_END = 18798;
+// config-server 段与 gateway 段（18789-18799，见 Windows-Start.bat / Mac-Start.command）
+// 曾经重叠（18788-18798 向上顺延会撞进 gateway 的地盘）。v2.2.1 起改为向下顺延，
+// 两段各自独占，谁也不会抢走对方的候选口。
+const PORT_RANGE_PREFERRED = 18788;
+const PORT_RANGE_FLOOR = 18778;
 const OPENCLAW_HOME = process.env.OPENCLAW_HOME || path.join(__dirname, '../data');
 const OPENCLAW_STATE_DIR = process.env.OPENCLAW_STATE_DIR || path.join(OPENCLAW_HOME, '.openclaw');
 const OPENCLAW_CONFIG_PATH = process.env.OPENCLAW_CONFIG_PATH || path.join(OPENCLAW_STATE_DIR, 'openclaw.json');
@@ -122,14 +125,29 @@ async function moveIncomingSecretsToStore(incoming) {
   }
 }
 
-function gatewayPortFromRuntime() {
+// v2.2.1：不再把 gateway 端口"猜"成 configServerPort + 1。干净机上两者恰好差 1，
+// 但客户机上一旦 18789 被别的程序占住，gateway 会顺延到 18790——猜出来的端口
+// 打中的是客户机上别家程序，密钥保存后 gateway 永远收不到，前端却显示"保存成功"。
+// 三级回退，只认权威来源，找不到就返回 null（让调用方走 CLI 自己发现端口，
+// 猜错比不猜更糟）：
+//   1) runtime.json 的 gatewayPort —— 启动脚本选定端口后立刻写入的真相源
+//   2) launcher-instance.lock/owner.json 的 .port —— 启动器的第二手证据
+//   3) 都没有 → null
+async function gatewayPortFromRuntime() {
   try {
     const runtime = JSON.parse(fs.readFileSync(RUNTIME_PATH, 'utf8'));
-    const configServerPort = Number(runtime.configServerPort);
-    return Number.isInteger(configServerPort) ? configServerPort + 1 : null;
-  } catch (_) {
-    return null;
-  }
+    const gatewayPort = Number(runtime.gatewayPort);
+    if (Number.isInteger(gatewayPort) && gatewayPort > 0) return gatewayPort;
+  } catch (_) { /* runtime.json 缺失/损坏，继续找下一级 */ }
+
+  try {
+    const { lockDir, readOwner } = await import('../lib/portable-instance-lock.mjs');
+    const owner = readOwner(lockDir(OPENCLAW_STATE_DIR));
+    const ownerPort = owner ? Number(owner.port) : NaN;
+    if (Number.isInteger(ownerPort) && ownerPort > 0) return ownerPort;
+  } catch (_) { /* 锁目录不存在等，继续找下一级 */ }
+
+  return null;
 }
 
 function isConnectionError(error, stderr) {
@@ -138,10 +156,10 @@ function isConnectionError(error, stderr) {
   return /ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT|connect(?:ion)?|gateway.*(?:unreachable|unavailable|not running)|timed?\s*out/i.test(detail);
 }
 
-function runSecretsReload() {
+async function runSecretsReload() {
   if (!fs.existsSync(OPENCLAW_MJS)) return Promise.resolve({ reloadError: 'cli-missing' });
   const args = [OPENCLAW_MJS, 'secrets', 'reload', '--json'];
-  const gatewayPort = gatewayPortFromRuntime();
+  const gatewayPort = await gatewayPortFromRuntime();
   if (gatewayPort) args.push('--port', String(gatewayPort));
   args.push('--token', 'uclaw', '--timeout', '8000');
 
@@ -544,6 +562,77 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // API: Runtime ports — 前端不再自己盲扫 18789-18799 猜 gateway 端口，改问权威来源。
+  // 见 gatewayPortFromRuntime() 的三级回退注释。
+  if (req.url === '/api/runtime' && req.method === 'GET') {
+    (async () => {
+      // runtime.json 损坏（比如两个进程写入时被截断）不该让这个端点整个 500——
+      // gatewayPortFromRuntime() 已经对同一份文件做了"解析失败就当没有"的处理，这里的
+      // configServerPort 读取也要同样宽容，否则前端连"权威来源暂时不可用"都问不到，
+      // 直接连 findGatewayPort() 的第一步都失败，退化回旧的盲扫路径。
+      let configServerPort = null;
+      try {
+        const runtime = fs.existsSync(RUNTIME_PATH) ? JSON.parse(fs.readFileSync(RUNTIME_PATH, 'utf8')) : {};
+        configServerPort = Number.isInteger(runtime.configServerPort) ? runtime.configServerPort : null;
+      } catch (_) { /* 损坏的 runtime.json：当作没有 configServerPort，继续走 gatewayPort 的三级回退 */ }
+      const gatewayPort = await gatewayPortFromRuntime();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ configServerPort, gatewayPort }));
+    })();
+    return;
+  }
+
+  // API: Gateway identity check — 代前端做跨端口探活。
+  // 浏览器直接 fetch 网关端口是跨源请求，读不到网关是否真发了 CORS 头（打包进 OpenClaw 的
+  // cors 中间件默认行为未经验证，贸然假设 res.ok 可读会比原来的 no-cors 盲扫更脆）。这里在
+  // Node 侧发请求——Node fetch 不受 CORS 限制。
+  //
+  // 2026-09-02 实测更正：/ready 是不鉴权的公开健康检查——真实 gateway 对错 token / 无 token /
+  // 对 token 一律 200，`x-openclaw-token` 在这条路由上完全不起识别作用（之前的注释和
+  // `isOurGateway()` 里"带 token 确认身份"的说法是错的，已用真跑起来的 gateway 验证过）。
+  // 光看 HTTP 状态码==2xx 认不出"是不是我们的 gateway"——客户机上随便一个在这个端口监听、
+  // 对任何路径都回 200 的东西（很多本地开发服务器、反代默认页都这样）都会被误认。
+  // 改成校验 /ready 响应体的形状：真实 OpenClaw 网关固定返回
+  // `{ ready: boolean, failing: array, uptimeMs: number, eventLoop: {...} }`——这几个字段
+  // 同时出现，比状态码更难被无关服务偶然撞上。仍不是防"蓄意伪造"的安全边界，只是不再被
+  // "碰巧占了端口的别家服务"糊弄。
+  if (req.url.startsWith('/api/gateway-check') && req.method === 'GET') {
+    (async () => {
+      try {
+        const url = new URL(req.url, 'http://127.0.0.1');
+        const port = Number(url.searchParams.get('port'));
+        if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'bad port' }));
+          return;
+        }
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 1500);
+        let ok = false;
+        try {
+          const r = await fetch(`http://127.0.0.1:${port}/ready`, { signal: controller.signal });
+          if (r.ok) {
+            const body = await r.json();
+            ok = typeof body.ready === 'boolean'
+              && Array.isArray(body.failing)
+              && typeof body.uptimeMs === 'number'
+              && body.eventLoop && typeof body.eventLoop === 'object';
+          }
+        } catch (_) {
+          ok = false;
+        } finally {
+          clearTimeout(timer);
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
+    })();
+    return;
+  }
+
   // API: Get config
   if (req.url === '/api/config' && req.method === 'GET') {
     try {
@@ -853,9 +942,9 @@ const server = http.createServer((req, res) => {
 
 function listenWithFallback(port) {
   server.once('error', (err) => {
-    if (err && err.code === 'EADDRINUSE' && port < PORT_RANGE_END) {
-      console.log(`   Port ${port} busy, trying ${port + 1}…`);
-      setImmediate(() => listenWithFallback(port + 1));
+    if (err && err.code === 'EADDRINUSE' && port > PORT_RANGE_FLOOR) {
+      console.log(`   Port ${port} busy, trying ${port - 1}…`);
+      setImmediate(() => listenWithFallback(port - 1));
       return;
     }
     console.error(`Config server failed to bind: ${err && err.message ? err.message : err}`);
@@ -884,5 +973,5 @@ function listenWithFallback(port) {
   });
 }
 
-// 测试/多实例隔离口：允许调用方指定起始端口（如 tests 传 18901，避开 18788-18798 产品段）。
-listenWithFallback(Number(process.env.UCLAW_CONFIG_PORT) || PORT_RANGE_START);
+// 测试/多实例隔离口：允许调用方指定起始端口（如 tests 传 18901，避开 18778-18788 产品段）。
+listenWithFallback(Number(process.env.UCLAW_CONFIG_PORT) || PORT_RANGE_PREFERRED);

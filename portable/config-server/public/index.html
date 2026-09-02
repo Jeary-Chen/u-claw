@@ -939,15 +939,56 @@ function showToast(msg, isError) {
     setTimeout(function() { t.className = 'toast'; }, 3000);
 }
 
-// --- Find active gateway port (18789-18799) ---
+// --- Find active gateway port ---
+// v2.2.1: no longer "whoever answers on 18789-18799 must be our gateway". That blind
+// no-cors scan happily latched onto ANY process listening in the range -- on a
+// customer's machine that could be someone else's service, and secrets reload/dashboard
+// links would then silently point at the wrong process. Ask the authoritative source
+// first (config-server's own /api/runtime, backed by runtime.json -- see server.js
+// gatewayPortFromRuntime()), then confirm candidates actually look like OpenClaw's /ready
+// before trusting them (server.js checks the response *body shape*, not a token -- /ready
+// turned out to be an unauthenticated health check, confirmed 2026-09-02 against a live
+// gateway, so a token header there proves nothing).
+//
+// The confirm step goes through config-server's /api/gateway-check instead of fetching
+// the gateway port directly from the browser: that would be a cross-origin request, and
+// whether OpenClaw's bundled gateway actually answers with CORS headers on /ready is not
+// something this page can safely assume (no-cors was used originally specifically to dodge
+// that unknown). config-server does the probe in Node -- no CORS involved -- and this page
+// just asks it same-origin.
 var _gatewayPort = null;
+async function isOurGateway(port) {
+    try {
+        var res = await fetch('/api/gateway-check?port=' + encodeURIComponent(port), {
+            cache: 'no-store',
+        });
+        var data = await res.json();
+        return !!data.ok;
+    } catch (e) {
+        return false;
+    }
+}
+
 async function findGatewayPort() {
-    for (var p = 18789; p <= 18799; p++) {
-        try {
-            await fetch('http://127.0.0.1:' + p + '/', { mode: 'no-cors' });
-            _gatewayPort = p;
-            return p;
-        } catch(e) {}
+    var hinted = parseInt(new URLSearchParams(window.location.search).get('gatewayPort'), 10);
+    var candidates = [];
+    try {
+        var res = await fetch('/api/runtime', { cache: 'no-store' });
+        var runtime = await res.json();
+        if (Number.isInteger(runtime.gatewayPort)) candidates.push(runtime.gatewayPort);
+    } catch (e) { /* config-server 一时打不通，退回下面的候选 */ }
+    if (Number.isInteger(hinted)) candidates.push(hinted);
+    for (var p = 18789; p <= 18799; p++) candidates.push(p);
+
+    var tried = {};
+    for (var i = 0; i < candidates.length; i++) {
+        var port = candidates[i];
+        if (tried[port]) continue;
+        tried[port] = true;
+        if (await isOurGateway(port)) {
+            _gatewayPort = port;
+            return port;
+        }
     }
     _gatewayPort = null;
     return null;

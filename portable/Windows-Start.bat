@@ -4,7 +4,7 @@ title U-Claw - Portable AI Agent
 
 echo.
 echo   ========================================
-echo     U-Claw v2.1 - Portable AI Agent
+echo     U-Claw - Portable AI Agent
 echo   ========================================
 echo.
 
@@ -223,23 +223,34 @@ if exist "%RUNTIME_JSON%" (
 echo   Config Center port: %CONFIG_PORT%
 
 REM Find available gateway port after Config Center has bound its port.
+REM NOTE: this loop deliberately avoids a parenthesized IF block. cmd.exe expands
+REM %PORT% for every line inside "if (...)" at PARSE time of the whole block, before
+REM any statement in it runs -- so "if %PORT% gtr 18799" would see the pre-increment
+REM value and silently probe one port too many (v2.2.0 bug). Each statement below is
+REM its own line outside any block, so %PORT% is re-read fresh before each one.
 set PORT=18789
 :check_port
-netstat -an | findstr ":%PORT% " | findstr "LISTENING" >nul 2>&1
-if %errorlevel%==0 (
-    echo   Port %PORT% in use, trying next...
-    set /a PORT+=1
-    if %PORT% gtr 18799 (
-        echo   No available port 18789-18799
-        pause
-        exit /b 1
-    )
+netstat -ano | findstr "LISTENING" | findstr ":%PORT% " >nul 2>&1
+if not %errorlevel%==0 goto :port_selected
+echo   Port %PORT% in use, trying next...
+set /a PORT+=1
+if %PORT% gtr 18799 goto :no_gateway_port
 goto :check_port
-)
+:no_gateway_port
+echo   No available port 18789-18799
+pause
+exit /b 1
+:port_selected
 
 REM Publish the chosen port before launching child processes so a second click
 REM reuses this exact instance instead of selecting 18790/18791.
 if defined UCLAW_LAUNCHER_PID "%NODE_BIN%" "%UCLAW_DIR%lib\portable-instance-lock.mjs" publish "%INSTANCE_ROOT%" "%STATE_DIR%" "%UCLAW_LAUNCHER_PID%" %PORT% >nul 2>&1
+
+REM Single source of truth for the actually-selected gateway port (v2.2.1).
+REM config-server / Config.html / U-Claw.html now read this instead of guessing
+REM configServerPort + 1 -- see lib/runtime-ports.mjs for why that guess broke
+REM on machines where 18789 was already taken by something else.
+"%NODE_BIN%" "%UCLAW_DIR%lib\runtime-ports.mjs" publish "%STATE_DIR%" gateway %PORT% >nul 2>&1
 
 echo   Starting OpenClaw on port %PORT%...
 echo.
@@ -265,14 +276,14 @@ REM Open the local startup page now; Config Center only auto-opens on first run.
 REM Open startup page with the gateway port and token in the query string.
 echo   Opening startup screen...
 set "LOADING_PATH=%UCLAW_DIR%lib\loading.html"
-set "LOADING_URL=file:///%LOADING_PATH:\=/%?port=%PORT%&token=uclaw"
+set "LOADING_URL=file:///%LOADING_PATH:\=/%?port=%PORT%&token=uclaw&configPort=%CONFIG_PORT%"
 start "" "%LOADING_URL%"
 
 if "%MODEL_CONFIGURED%"=="1" (
     echo   Model already configured - Dashboard only, no Config Center popup.
 ) else (
     echo   Opening Config Center...
-    start "" http://127.0.0.1:%CONFIG_PORT%/
+    start "" "http://127.0.0.1:%CONFIG_PORT%/?gatewayPort=%PORT%"
 )
 
 REM Fallback watcher: if the startup page cannot poll from file URLs,

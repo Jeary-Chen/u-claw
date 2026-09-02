@@ -31,7 +31,9 @@ export function lockDir(cacheRoot) {
   return join(cacheRoot, LOCK_DIR_NAME);
 }
 
-function readOwner(dir) {
+// 导出给 config-server 的 gatewayPortFromRuntime() 复用：owner.json 里的 port 字段是
+// 启动器已经知道的第二手证据（第一手是 runtime.json 的 gatewayPort，见 runtime-ports.mjs）。
+export function readOwner(dir) {
   try {
     const owner = JSON.parse(readFileSync(join(dir, OWNER_FILE_NAME), 'utf8'));
     return {

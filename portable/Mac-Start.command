@@ -236,9 +236,38 @@ case "$NO_PROXY_LINE" in
         ;;
 esac
 
-# ---- 8. Find available port ----
+# ---- 8. Start Config Server in background, then poll for its actual port ----
+# config-server can fall back off 18788 (busy machine, see server.js
+# PORT_RANGE_PREFERRED/PORT_RANGE_FLOOR); its own runtime.json write is the only
+# source of truth for which port it actually bound, so poll for that instead of
+# assuming 18788 like pre-v2.2.1 did.
+echo -e "  ${CYAN}Starting Config Center...${NC}"
+CONFIG_SERVER="$UCLAW_DIR/config-server"
+RUNTIME_JSON="$STATE_DIR/runtime.json"
+rm -f "$RUNTIME_JSON" 2>/dev/null || true
+"$NODE_BIN" "$CONFIG_SERVER/server.js" &
+CONFIG_PID=$!
+
+for i in $(seq 1 20); do
+    if [ -f "$RUNTIME_JSON" ]; then
+        break
+    fi
+    sleep 0.3
+done
+CONFIG_PORT=18788
+while IFS='=' read -r _k _v; do
+    case "$_k" in
+        UCLAW_CONFIG_PORT) [ -n "$_v" ] && CONFIG_PORT="$_v" ;;
+    esac
+done < <("$NODE_BIN" "$UCLAW_DIR/lib/runtime-ports.mjs" read "$STATE_DIR" 2>/dev/null)
+echo -e "  ${CYAN}Config Center port: $CONFIG_PORT${NC}"
+
+# ---- 9. Find available gateway port after Config Center has bound its port ----
+# lsof -sTCP:LISTEN restricts the probe to sockets actually listening on this
+# machine (a plain "lsof -i :$PORT" also matches established connections that
+# merely happen to use that local port, which is a false positive for "busy").
 PORT=18789
-while lsof -i :$PORT >/dev/null 2>&1; do
+while lsof -i :$PORT -sTCP:LISTEN >/dev/null 2>&1; do
     echo -e "  ${YELLOW}Port $PORT in use, trying next...${NC}"
     PORT=$((PORT + 1))
     if [ $PORT -gt 18799 ]; then
@@ -251,12 +280,9 @@ done
 # 端口确定后立刻发布给第二次点击的启动器；它会复用这个地址，不会再启动一份。
 "$NODE_BIN" "$UCLAW_DIR/lib/portable-instance-lock.mjs" publish "$INSTANCE_ROOT" "$STATE_DIR" "$$" "$PORT" 2>/dev/null || true
 
-# ---- 9. Start Config Server in background ----
-echo -e "  ${CYAN}Starting Config Center on port 18788...${NC}"
-CONFIG_SERVER="$UCLAW_DIR/config-server"
-"$NODE_BIN" "$CONFIG_SERVER/server.js" &
-CONFIG_PID=$!
-sleep 1
+# 单一真相源（v2.2.1）：config-server 不再把 gateway 端口猜成 configServerPort + 1，
+# 而是读这里发布的值。见 lib/runtime-ports.mjs 顶部注释。
+"$NODE_BIN" "$UCLAW_DIR/lib/runtime-ports.mjs" publish "$STATE_DIR" gateway "$PORT" 2>/dev/null || true
 
 # ---- 10. Start gateway ----
 echo -e "  ${CYAN}Starting OpenClaw on port $PORT...${NC}"
@@ -276,19 +302,19 @@ GW_PID=$!
 # 首屏 loading.html 自己轮询 /ready，就绪后停在选择页，不再自动冲进 Dashboard。
 echo -e "  ${YELLOW}首次启动需准备运行环境，约 30-90 秒，请稍候...${NC}"
 # 用 file:// URL 确保 query string（?port=）能传给浏览器；裸路径 open 会把整串当文件名。
-open "file://$UCLAW_DIR/lib/loading.html?port=$PORT&token=uclaw" 2>/dev/null || true
+open "file://$UCLAW_DIR/lib/loading.html?port=$PORT&token=uclaw&configPort=$CONFIG_PORT" 2>/dev/null || true
 
 # ---- 11a. 只在"未配置模型"时才自动弹 Config Center（issue #24）----
 # 以前这里无条件每次都 open Config Center，导致已经配置好模型的老用户每次双击启动
 # 都被强弹一次配置页。真正的设计（见仓库 CLAUDE.md）：首次运行（未配置模型）才自动打开
-# Config Center；已配置则只开 Dashboard。Config Center 仍然常驻在 18788 端口，
-# Mac-Menu.command 的配置向导也还在，手动打开的能力没有被拿掉。
+# Config Center；已配置则只开 Dashboard。Config Center 端口以 $CONFIG_PORT 为准
+# （18788 起顺延，见上方轮询），Mac-Menu.command 的配置向导也还在，手动打开的能力没有被拿掉。
 # 助手静默失败：读不到/解析不了配置就当"未配置"，宁可多弹一次也不能少弹。
 MODEL_CONFIGURED="$("$NODE_BIN" "$UCLAW_DIR/lib/check-model-configured.mjs" "$CONFIG_FILE" 2>/dev/null)"
 if [ "$MODEL_CONFIGURED" = "UCLAW_MODEL_CONFIGURED=1" ]; then
     echo -e "  ${GREEN}已配置模型，仅打开 Dashboard，不再弹出 Config Center。${NC}"
 else
-    open "http://127.0.0.1:18788/" 2>/dev/null || true
+    open "http://127.0.0.1:$CONFIG_PORT/?gatewayPort=$PORT" 2>/dev/null || true
 fi
 
 # ---- 11b. gateway 首轮预热（后台、静默、非阻塞）----
@@ -309,7 +335,7 @@ fi
 echo -e "  ${GREEN}════════════════════════════════${NC}"
 echo -e "  ${GREEN}🦞 U-Claw is running!${NC}"
 echo -e "  ${GREEN}   Dashboard:     http://127.0.0.1:$PORT/#token=uclaw${NC}"
-echo -e "  ${GREEN}   Config Center: http://127.0.0.1:18788/${NC}"
+echo -e "  ${GREEN}   Config Center: http://127.0.0.1:$CONFIG_PORT/${NC}"
 echo ""
 echo -e "  ${YELLOW}Press Ctrl+C to stop${NC}"
 echo -e "  ${GREEN}════════════════════════════════${NC}"

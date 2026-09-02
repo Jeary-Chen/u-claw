@@ -173,6 +173,19 @@ function switchOS(os) {
 }
 
 // Check if gateway is running (scan 18789-18799)
+// v2.2.1 note: this page is opened as a bare file:// document (it's not launched by
+// Windows-Start.bat/Mac-Start.command -- grep confirms nothing opens it automatically,
+// only *-Install.* copy it to the install target as a manual/legacy entry point). That
+// means it can't do the identity-verified check used in config-server/public/index.html:
+// config-server's CORS only allows http://127.0.0.1/http://localhost origins (server.js),
+// and a file:// origin is neither, so this page can't read config-server's
+// /api/gateway-check response, and a direct cross-origin fetch to the gateway's /ready
+// can't be trusted to be readable either (unknown whether OpenClaw's bundled CORS
+// middleware allows a null origin). No-cors "something answered" is the ceiling of what's
+// achievable from this page's origin -- it can still be fooled by another listener on the
+// scanned port, same as before. If this page needs to be trustworthy, it needs to stop
+// being a bare file:// page (served by config-server, or passed a verified port via a
+// launcher that isn't wired up today).
 var _gwPort = null;
 async function checkStatus() {
     var found = null;
