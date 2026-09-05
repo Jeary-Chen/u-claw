@@ -6,30 +6,32 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const EXPECTED_VERSION = '2026.8.1';
-const EXPECTED_SHA256 = '08818a161252713e1225013788d7960cd3f87ee8f6423e23d2885aceee9c4b8f';
-const BUNDLE = 'node_modules/openclaw/dist/replace-file-f6TD5O4c.js';
+const EXPECTED_VERSION = '2026.9.1';
+const EXPECTED_SHA256 = '4ff2e368c8273b084a9779e36f2ddae02be6c92d2c7201187e62acf0a433aa32';
+// 2026.9.1 起重试逻辑下沉到 @openclaw/fs-safe 包内（openclaw/dist/replace-file-*.js
+// 只是 485 字节的 re-export shim），patch 目标改为包内真实文件。
+const BUNDLE = 'node_modules/@openclaw/fs-safe/dist/replace-file.js';
 const OLD_RETRYABLE = `function isRetryableRenameError(error) {
-\treturn error.code === "EBUSY";
+    return error.code === "EBUSY";
 }`;
 const NEW_RETRYABLE = `function isDevicePairingStatePath(filePath) {
-\treturn /[\\\\/]devices[\\\\/](?:paired|pending)\\.json$/i.test(filePath);
+    return /[\\\\/]devices[\\\\/](?:paired|pending)\\.json$/i.test(filePath);
 }
 function isRetryableRenameError(error, dest) {
-\tconst code = error?.code;
-\treturn code === "EBUSY" || isDevicePairingStatePath(dest) && (code === "EPERM" || code === "ENOTEMPTY");
+    const code = error?.code;
+    return code === "EBUSY" || isDevicePairingStatePath(dest) && (code === "EPERM" || code === "ENOTEMPTY");
 }`;
 const OLD_RETRY_CALL = 'isRetryableRenameError(error) && attempt < params.maxRetries';
 const NEW_RETRY_CALL = 'isRetryableRenameError(error, params.dest) && attempt < params.maxRetries';
-const ASYNC_PREFIX = `\t\tconst result = await renameWithRetry({
-\t\t\tfsModule,
-\t\t\tsrc: tempPath,
-\t\t\tdest: filePath,`;
-const SYNC_PREFIX = `\t\tconst result = renameWithRetrySync({
-\t\t\tfsModule,
-\t\t\tsrc: tempPath,
-\t\t\tdest: filePath,`;
-const PAIRING_STATE_FILE = '\t\tconst pairingStateFile = /[\\\\/]devices[\\\\/](?:paired|pending)\\.json$/i.test(filePath);\n';
+const ASYNC_PREFIX = `        const result = await renameWithRetry({
+            fsModule,
+            src: tempPath,
+            dest: filePath,`;
+const SYNC_PREFIX = `        const result = renameWithRetrySync({
+            fsModule,
+            src: tempPath,
+            dest: filePath,`;
+const PAIRING_STATE_FILE = '        const pairingStateFile = /[\\\\/]devices[\\\\/](?:paired|pending)\\.json$/i.test(filePath);\n';
 const OLD_MAX_RETRIES = 'maxRetries: options.renameMaxRetries ?? 0,';
 const NEW_MAX_RETRIES = 'maxRetries: pairingStateFile ? Math.max(options.renameMaxRetries ?? 0, 4) : options.renameMaxRetries ?? 0,';
 const OLD_BASE_DELAY = 'baseDelayMs: options.renameRetryBaseDelayMs ?? 50,';
@@ -57,7 +59,7 @@ function replaceInCallBlock(source, prefix, oldText, newText, label) {
   if (start === -1 || source.indexOf(prefix, start + prefix.length) !== -1) {
     throw new Error(`Refuse pairing retry patch: expected exactly one ${label} call block`);
   }
-  const end = source.indexOf('\n\t\t});', start);
+  const end = source.indexOf('\n        });', start);
   if (end === -1) {
     throw new Error(`Refuse pairing retry patch: cannot find end of ${label} call block`);
   }

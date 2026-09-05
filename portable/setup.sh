@@ -147,8 +147,8 @@ PKGJSON
     # instead of silently producing a partially portable installation.
     "$NODE_BIN" "$SCRIPT_DIR/lib/patch-managed-browser-root.mjs" "$CORE_DIR"
     "$NODE_BIN" "$SCRIPT_DIR/lib/patch-device-pairing-retry.mjs" "$CORE_DIR"
-    "$NODE_BIN" --check "$CORE_DIR/node_modules/openclaw/dist/chrome-DTMbh5xz.js"
-    "$NODE_BIN" --check "$CORE_DIR/node_modules/openclaw/dist/replace-file-f6TD5O4c.js"
+    "$NODE_BIN" --check "$CORE_DIR/node_modules/openclaw/dist/chrome-lc3LoS6t.js"
+    "$NODE_BIN" --check "$CORE_DIR/node_modules/@openclaw/fs-safe/dist/replace-file.js"
 
     echo -e "  ${GREEN}✓${NC} OpenClaw 安装完成"
 fi

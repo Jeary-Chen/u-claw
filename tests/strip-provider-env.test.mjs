@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (...p) => readFileSync(join(repoRoot, ...p), 'utf8');
 
-test('strip-provider-env.mjs 清单与 2026.8.1 官方 catalog 的 42 个变量一致', async () => {
+test('strip-provider-env.mjs 清单与 2026.9.1 官方 catalog 的 42 个变量一致', async () => {
   const src = read('portable/lib/strip-provider-env.mjs');
   const names = [...src.matchAll(/^  '([A-Z][A-Z0-9_]+)',$/gm)].map((m) => m[1]);
   assert.equal(names.length, 42, `清单应是 42 个字面量，实际 ${names.length}: ${names.join(',')}`);

@@ -20,8 +20,8 @@ test('上游跟踪按 git tag 版本序计算并安全跳过撞车版本', () =>
 // 用「从 patch 脚本抽出」而不是硬编码，上游换 hash 后这里自动跟红，不用靠人记。
 function extractBundles(patchSource) {
   const bundles = new Set();
-  // BUNDLE 常量（patch2）与 bundlePath 字面量（patch1）
-  for (const m of patchSource.matchAll(/(?:BUNDLE = 'node_modules\/openclaw\/dist\/|openclaw\/dist\/)([A-Za-z][A-Za-z0-9._-]*\.js)'/g)) {
+  // BUNDLE 常量（patch2，2026.9.1 起指向 @openclaw/fs-safe 包内）与 bundlePath 字面量（patch1）
+  for (const m of patchSource.matchAll(/(?:BUNDLE = 'node_modules\/(?:@openclaw\/fs-safe\/dist\/|openclaw\/dist\/)|openclaw\/dist\/)([A-Za-z][A-Za-z0-9._-]*\.js)'/g)) {
     bundles.add(m[1]);
   }
   return bundles;
