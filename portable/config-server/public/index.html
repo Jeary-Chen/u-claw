@@ -757,7 +757,8 @@ async function saveConfig() {
             showToast(result.error || '保存失败', true);
             return;
         }
-        if (result.pendingRestart) showToast('已保存，启动 Gateway 后生效');
+        if (result.reloadError) showToast('已保存，但网关热加载失败（' + result.reloadError + '）：重启 U-Claw 后生效', true);
+        else if (result.pendingRestart) showToast('已保存，启动 Gateway 后生效');
         else showToast('配置已保存并生效');
         goStep(3);
     } catch (e) {

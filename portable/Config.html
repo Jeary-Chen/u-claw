@@ -611,9 +611,12 @@ async function saveConfig() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(openclawConfig)
         });
-        if (!res.ok) throw new Error('保存失败');
+        const result = await res.json().catch(() => ({}));
+        if (!res.ok || result.ok === false) throw new Error((result && result.error) || '保存失败');
 
-        showToast('配置已保存！');
+        if (result.reloadError) showToast('已保存，但网关热加载失败（' + result.reloadError + '）：重启 U-Claw 后生效', true);
+        else if (result.pendingRestart) showToast('已保存，启动 Gateway 后生效');
+        else showToast('配置已保存！');
         goStep(3);
         const port = getPort();
         document.getElementById('gatewayUrl').textContent = 'http://127.0.0.1:' + port;
@@ -737,6 +740,9 @@ const stepParam = new URLSearchParams(window.location.search).get('step');
 if (stepParam) goStep(parseInt(stepParam));
 
 // --- Step 3: Quick entry buttons ---
+// 注意：本页通过 file:// 直接打开，没有 config-server 同源服务可问，
+// gateway 端口只能从启动脚本拼进来的 ?port= 参数拿。拿不到就 18789 是
+// 启动脚本的默认值（Windows-Start.bat :check_port 起始端口），两者保持一致。
 function getPort() {
     const params = new URLSearchParams(window.location.search);
     return params.get('port') || '18789';

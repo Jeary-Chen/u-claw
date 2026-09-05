@@ -7,10 +7,19 @@ import { guardOfficialProviders, guardOfficialProvidersInMemory } from '../porta
 
 const gateway = { mode: 'local', auth: { mode: 'token', token: 'uclaw' } };
 const deepseek = { baseUrl: 'https://api.deepseek.com/v1', api: 'openai-completions', apiKey: 'secret' };
+// 测试隔离：开发机 portable/app/core 里真实装着 @openclaw/deepseek-provider，
+// guard 的 pluginInstalled 一看插件已预装就放过改名。每个 T1 类用例必须传一个
+// 空 coreDir，否则同一份测试在本机和 CI 跑出两种结果（本机 7 挂、CI 全绿）。
+function emptyCoreDir() {
+  const dir = mkdtempSync(join(tmpdir(), 'uclaw-guard-nocore-'));
+  mkdirSync(join(dir, 'node_modules'), { recursive: true });
+  return dir;
+}
+const ISOLATED = () => ({ catalogPath: false, coreDir: emptyCoreDir() });
 
 test('T1: official provider is renamed and primary follows it', () => {
   const config = { gateway, models: { providers: { deepseek: { ...deepseek } } }, agents: { defaults: { model: { primary: 'deepseek/deepseek-v3' } } } };
-  const result = guardOfficialProvidersInMemory(config, { catalogPath: false });
+  const result = guardOfficialProvidersInMemory(config, { ...ISOLATED() });
   assert.equal(result.changed, true);
   assert.equal(config.models.providers.deepseek, undefined);
   assert.deepEqual(config.models.providers['deepseek-api'], deepseek);
@@ -32,7 +41,7 @@ test('T1: an installed official plugin is left untouched', () => {
 test('T2: flat ZAI SecretRef becomes zai-api and primary follows it', () => {
   const secretRef = { source: 'store', provider: 'default', id: 'UCLAW_MODEL_ZAI_API_KEY' };
   const config = { gateway, env: { ZAI_API_KEY: secretRef }, agents: { defaults: { model: { primary: 'zai/glm-5.3-flash' } } } };
-  const result = guardOfficialProvidersInMemory(config, { catalogPath: false });
+  const result = guardOfficialProvidersInMemory(config, { ...ISOLATED() });
   assert.equal(result.changed, true);
   assert.equal(config.env.ZAI_API_KEY, undefined);
   assert.equal(config.models.providers['zai-api'].apiKey, secretRef);
@@ -48,7 +57,7 @@ test('T2: env.vars is handled and non-inferable official credentials are quarant
   const config = { gateway, meta: { uclawQuarantinedEnv: { OLD_KEY: legacySecret } }, env: { vars: { Z_AI_API_KEY: nestedSecret, DASHSCOPE_API_KEY: dashscopeSecret } }, agents: { defaults: { model: { primary: 'zai/glm-5' } } } };
   const stateDir = mkdtempSync(join(tmpdir(), 'uclaw-provider-state-'));
   const quarantinePath = join(stateDir, 'uclaw-provider-guard-quarantine.json');
-  guardOfficialProvidersInMemory(config, { catalogPath: false, quarantinePath });
+  guardOfficialProvidersInMemory(config, { ...ISOLATED(), quarantinePath });
   assert.equal(config.env.vars.Z_AI_API_KEY, undefined);
   assert.equal(config.env.vars.DASHSCOPE_API_KEY, undefined);
   assert.equal(config.models.providers['zai-api'].apiKey, nestedSecret);
@@ -64,7 +73,7 @@ test('T1 conflict: official provider is quarantined when its -api provider alrea
   const official = { ...deepseek, apiKey: 'official-secret' };
   const api = { ...deepseek, apiKey: 'portable-secret' };
   const config = { gateway, models: { providers: { deepseek: official, 'deepseek-api': api } }, agents: { defaults: { model: { primary: 'deepseek/v3' } } } };
-  const result = guardOfficialProvidersInMemory(config, { catalogPath: false, quarantinePath });
+  const result = guardOfficialProvidersInMemory(config, { ...ISOLATED(), quarantinePath });
   assert.equal(config.models.providers.deepseek, undefined);
   assert.deepEqual(config.models.providers['deepseek-api'], api);
   assert.deepEqual(JSON.parse(readFileSync(quarantinePath, 'utf8')).providers.deepseek, official);
@@ -78,7 +87,7 @@ test('.env official keys are removed, backed up, and ZAI becomes zai-api', () =>
   writeFileSync(envPath, 'KEEP=yes\nDEEPSEEK_API_KEY=deepseek-secret\nZAI_API_KEY=zai-secret\n');
   const quarantinePath = join(stateDir, 'uclaw-provider-guard-quarantine.json');
   const config = { gateway, agents: { defaults: { model: { primary: 'zai/glm-5.3-flash' } } } };
-  guardOfficialProvidersInMemory(config, { catalogPath: false, stateDir, quarantinePath });
+  guardOfficialProvidersInMemory(config, { ...ISOLATED(), stateDir, quarantinePath });
   assert.equal(readFileSync(envPath, 'utf8').includes('DEEPSEEK_API_KEY'), false);
   assert.equal(readFileSync(envPath, 'utf8').includes('ZAI_API_KEY'), false);
   assert.ok(readdirSync(stateDir).some((name) => /^\.env\.provider-guard-bak-\d{6}$/.test(name)));
@@ -91,7 +100,7 @@ test('.env dotenv decoding strips BOM, paired quotes, and trailing comments; ZAI
   const envPath = join(stateDir, '.env');
   writeFileSync(envPath, '\uFEFFexport ZAI_API_KEY="za#i key" # trailing\nDEEPSEEK_API_KEY=deep-key # trailing\nKEEP=value # comment\n');
   const config = { gateway, agents: { defaults: { model: { primary: 'zai/glm-5' } } } };
-  guardOfficialProvidersInMemory(config, { catalogPath: false, stateDir, quarantinePath: join(stateDir, 'sidecar.json') });
+  guardOfficialProvidersInMemory(config, { ...ISOLATED(), stateDir, quarantinePath: join(stateDir, 'sidecar.json') });
   assert.equal(config.models.providers['zai-api'].apiKey, 'za#i key');
   assert.equal(JSON.parse(readFileSync(join(stateDir, 'sidecar.json'), 'utf8')).env.DEEPSEEK_API_KEY, 'deep-key');
   assert.equal(readFileSync(envPath, 'utf8').includes('ZAI_API_KEY'), false);
@@ -103,7 +112,7 @@ test('a broken sidecar is rebuilt but source official entries are retained for t
   const quarantinePath = join(stateDir, 'uclaw-provider-guard-quarantine.json');
   writeFileSync(quarantinePath, '{broken');
   const config = { gateway, models: { providers: { deepseek: { ...deepseek }, 'deepseek-api': { ...deepseek, apiKey: 'portable' } } } };
-  const result = guardOfficialProvidersInMemory(config, { catalogPath: false, quarantinePath });
+  const result = guardOfficialProvidersInMemory(config, { ...ISOLATED(), quarantinePath });
   assert.ok(config.models.providers.deepseek, 'an untrustworthy prior sidecar must not cause source deletion');
   assert.deepEqual(JSON.parse(readFileSync(quarantinePath, 'utf8')).providers.deepseek, deepseek);
   assert.ok(result.actions.includes('quarantine unavailable, kept official entries'));
@@ -114,14 +123,14 @@ test('an unavailable sidecar destination retains official entries and records a 
   const blockedParent = join(stateDir, 'not-a-directory');
   writeFileSync(blockedParent, 'file');
   const config = { gateway, models: { providers: { deepseek: { ...deepseek }, 'deepseek-api': { ...deepseek, apiKey: 'portable' } } } };
-  const result = guardOfficialProvidersInMemory(config, { catalogPath: false, quarantinePath: join(blockedParent, 'sidecar.json') });
+  const result = guardOfficialProvidersInMemory(config, { ...ISOLATED(), quarantinePath: join(blockedParent, 'sidecar.json') });
   assert.ok(config.models.providers.deepseek);
   assert.ok(result.actions.includes('quarantine unavailable, kept official entries'));
 });
 
 test('without quarantinePath, a conflicting official provider is retained instead of deleted', () => {
   const config = { gateway, models: { providers: { deepseek: { ...deepseek }, 'deepseek-api': { ...deepseek, apiKey: 'portable' } } } };
-  const result = guardOfficialProvidersInMemory(config, { catalogPath: false });
+  const result = guardOfficialProvidersInMemory(config, { ...ISOLATED() });
   assert.ok(config.models.providers.deepseek);
   assert.ok(result.actions.includes('conflict kept: pass quarantinePath to remove (deepseek)'));
 });
@@ -138,7 +147,7 @@ test('all model references migrate with a renamed provider', () => {
       },
     },
   };
-  guardOfficialProvidersInMemory(config, { catalogPath: false });
+  guardOfficialProvidersInMemory(config, { ...ISOLATED() });
   assert.deepEqual(config.agents.defaults.model.fallbacks, ['deepseek-api/b', 'other/c']);
   assert.ok(config.agents.defaults.models['deepseek-api/d']);
   assert.equal(config.agents.entries.one.model, 'deepseek-api/f');
@@ -150,7 +159,7 @@ test('all model references migrate with a renamed provider', () => {
 
 test('model key migration never overwrites an existing target key', () => {
   const config = { gateway, models: { providers: { deepseek: { ...deepseek } } }, agents: { defaults: { models: { 'deepseek/a': { source: 'old' }, 'deepseek-api/a': { source: 'new' } } } } };
-  const result = guardOfficialProvidersInMemory(config, { catalogPath: false });
+  const result = guardOfficialProvidersInMemory(config, { ...ISOLATED() });
   assert.deepEqual(config.agents.defaults.models['deepseek/a'], { source: 'old' });
   assert.deepEqual(config.agents.defaults.models['deepseek-api/a'], { source: 'new' });
   assert.ok(result.actions.includes('model key conflict kept: deepseek/a'));
